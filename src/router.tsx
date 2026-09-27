@@ -1,0 +1,89 @@
+import { type ComponentType, Suspense, lazy } from "react"
+import { type RouteObject, RouterProvider, createBrowserRouter, createHashRouter } from "react-router-dom"
+import { AppLayout } from "./components/AppLayout"
+import { AboutPage } from "./pages/AboutPage"
+import { CuratorsPage } from "./pages/CuratorsPage"
+import { DocsPage } from "./pages/DocsPage"
+import { DownloadsPage } from "./pages/DownloadsPage"
+import { MobileGate } from "./components/exam/MobileGate"
+import { ExamPage } from "./pages/ExamPage"
+import { LinkPage } from "./pages/LinkPage"
+import { LyricsPage } from "./pages/LyricsPage"
+import { MePage } from "./pages/MePage"
+import { MigratePage } from "./pages/MigratePage"
+import { NicknamePage } from "./pages/NicknamePage"
+import { QueuePage } from "./pages/QueuePage"
+import { SearchPage } from "./pages/SearchPage"
+import { SongsPage } from "./pages/SongsPage"
+import { UserPage } from "./pages/UserPage"
+
+// Dev-only state gallery for the link/profile UI. The import.meta.env.DEV branch
+// is statically false in production builds, so this whole block (and the lazy
+// chunk it references) is dropped from the prod bundle.
+const devRoutes: RouteObject[] = []
+if (import.meta.env.DEV) {
+  const devPages: { path: string; load: () => Promise<{ default: ComponentType }> }[] = [
+    { path: "dev", load: () => import("./pages/DevIndex") },
+    { path: "dev/link", load: () => import("./pages/DevLinkPreview") },
+    { path: "dev/curators", load: () => import("./pages/DevCuratorsPreview") },
+    { path: "dev/me", load: () => import("./pages/DevMePreview") },
+    { path: "dev/migrate", load: () => import("./pages/DevMigratePreview") },
+  ]
+  for (const { path, load } of devPages) {
+    const Page = lazy(load)
+    devRoutes.push({
+      path,
+      element: (
+        <Suspense fallback={null}>
+          <Page />
+        </Suspense>
+      ),
+    })
+  }
+}
+
+import { FeedPage } from "./pages/FeedPage"
+import { SubmitPage } from "./pages/SubmitPage"
+import { TranslatePage } from "./pages/TranslatePage"
+
+const isGitHubPages = typeof window !== "undefined" && window.location.hostname.includes("github.io")
+const createRouter = isGitHubPages ? createHashRouter : createBrowserRouter
+
+const router = createRouter([
+  {
+    path: "/",
+    element: <AppLayout />,
+    children: [
+      { index: true, element: <FeedPage /> },
+      { path: "feed", element: <FeedPage /> },
+      { path: "songs", element: <FeedPage /> },
+      { path: "submit", element: <SubmitPage /> },
+      { path: "translate", element: <TranslatePage /> },
+      { path: "queue", element: <QueuePage /> },
+      { path: "curators", element: <CuratorsPage /> },
+      { path: "search", element: <SearchPage /> },
+      { path: "song/:videoId", element: <LyricsPage /> },
+      { path: "me", element: <MePage /> },
+      { path: "curator/:keyId", element: <UserPage /> },
+      { path: "u/:nickname", element: <NicknamePage /> },
+      { path: "about", element: <AboutPage /> },
+      { path: "downloads", element: <DownloadsPage /> },
+      { path: "docs", element: <DocsPage /> },
+      { path: "link", element: <LinkPage /> },
+      { path: "migrate", element: <MigratePage /> },
+      {
+        path: "exam",
+        element: (
+          <MobileGate>
+            <ExamPage />
+          </MobileGate>
+        ),
+      },
+      ...devRoutes,
+    ],
+  },
+])
+
+export function AppRouter() {
+  return <RouterProvider router={router} />
+}

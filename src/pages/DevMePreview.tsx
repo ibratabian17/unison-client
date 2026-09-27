@@ -1,0 +1,80 @@
+import { useState } from "react"
+import { SessionContext } from "@/auth/AuthProvider"
+import { type DiscordSectionModel, DiscordSectionView } from "@/components/DiscordSection"
+import { LeaderboardSection } from "@/components/LeaderboardSection"
+import { UserProfileView } from "@/components/UserProfileView"
+import { SEED_CURATORS } from "@/lib/dev-seed"
+
+// Mirrors the signed-in Me page against a fixture session so the owner layout (preview
+// toggle, edit controls, collapsible sections) renders with seed data. The Discord card
+// below is a separate dev-only gallery for its individual states.
+const curator = SEED_CURATORS[0]
+const fakeSession = {
+  status: "signed-in",
+  extensionAvailable: true,
+  extensionId: "effdbpeggelllpfkjppbokhmmiinhlmg",
+  identity: {
+    keyId: curator.keyId,
+    displayName: curator.displayName,
+    expiresAt: Math.floor(Date.now() / 1000) + 24 * 60 * 60,
+  },
+  signOut: () => {},
+  updateDisplayName: (_displayName: string) => {},
+  updateAvatarUrl: (_avatarUrl: string | null) => {},
+  exportIdentityFile: async () => {},
+} as const
+
+const baseSection: Omit<DiscordSectionModel, "status"> = {
+  username: "aurora#1234",
+  connecting: false,
+  canConnect: true,
+  working: false,
+  error: null,
+  onConnect: () => {},
+  onDisconnect: () => {},
+}
+
+const sectionStates: { label: string; model: DiscordSectionModel }[] = [
+  { label: "unlinked", model: { ...baseSection, status: "unlinked", username: null } },
+  { label: "unlinked (no extension)", model: { ...baseSection, status: "unlinked", username: null, canConnect: false } },
+  { label: "linked", model: { ...baseSection, status: "linked" } },
+  { label: "linked (working)", model: { ...baseSection, status: "linked", working: true } },
+  { label: "error", model: { ...baseSection, status: "linked", error: "We could not disconnect just now." } },
+  { label: "loading", model: { ...baseSection, status: "loading" } },
+]
+
+const tabClass = (active: boolean) =>
+  `cursor-pointer rounded-md border px-3 py-1.5 text-sm transition-colors ${
+    active
+      ? "border-unison-border-strong bg-unison-bg-hover text-unison-text"
+      : "border-unison-border bg-unison-bg-elevated text-unison-text-muted hover:text-unison-text"
+  }`
+
+export default function DevMePreview() {
+  const [sectionIdx, setSectionIdx] = useState(1)
+
+  return (
+    <SessionContext.Provider value={fakeSession}>
+      <div className="space-y-6">
+        <UserProfileView keyId={curator.keyId} />
+        <LeaderboardSection title="Discord states (dev)" subtitle="Swap the Discord card across its states.">
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              {sectionStates.map((s, i) => (
+                <button
+                  key={s.label}
+                  type="button"
+                  className={tabClass(i === sectionIdx)}
+                  onClick={() => setSectionIdx(i)}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+            <DiscordSectionView model={sectionStates[sectionIdx].model} />
+          </div>
+        </LeaderboardSection>
+      </div>
+    </SessionContext.Provider>
+  )
+}
