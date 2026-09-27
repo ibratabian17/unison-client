@@ -13,5 +13,19 @@ export function dicebearThumbsDataUri(seed: string): string {
 }
 
 export function resolveAvatar({ avatarUrl, keyId }: { avatarUrl?: string | null; keyId: string }): string {
-  return avatarUrl || dicebearThumbsDataUri(keyId)
+  if (avatarUrl) {
+    if (avatarUrl.startsWith("http://") || avatarUrl.startsWith("https://") || avatarUrl.startsWith("data:")) {
+      return avatarUrl
+    }
+    if (avatarUrl.startsWith("/avatars/") || avatarUrl.startsWith("/badges/")) {
+      return `https://unison.betterlyrics.org${avatarUrl}`
+    }
+    if (avatarUrl.startsWith("/")) {
+      const base = import.meta.env.BASE_URL || "./"
+      const cleanBase = base.endsWith("/") ? base : `${base}/`
+      return `${cleanBase}${avatarUrl.slice(1)}`
+    }
+    return avatarUrl
+  }
+  return dicebearThumbsDataUri(keyId)
 }
