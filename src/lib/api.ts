@@ -365,31 +365,46 @@ export async function saveLyricRevision(
   lyricId: number,
   input: {
     lyrics: string
-    format: LyricsFormat
-    language?: string
-    isrc?: string
+    format: LyricsFormat | "auto"
+    videoId?: string
+    duration?: number
     song?: string
     artist?: string
     album?: string
+    isrc?: string
+    language?: string
   },
 ): Promise<{ revision: LyricRevision }> {
   const session = loadStoredSession()
-  const signed = await signPayload(input as unknown as Record<string, unknown>)
+
+  const payload: Record<string, unknown> = {
+    lyrics: input.lyrics,
+    format: input.format === "auto" ? "plain" : input.format,
+  }
+  if (input.language) payload.language = input.language
+  if (input.isrc) payload.isrc = input.isrc
+
   const headers: Record<string, string> = { "Content-Type": "application/json" }
-  if (session) {
+  let bodyStr: string
+
+  if (session?.sessionToken) {
     headers["Authorization"] = `Bearer ${session.sessionToken}`
     headers["X-Key-ID"] = session.keyId
+    bodyStr = JSON.stringify(payload)
+  } else {
+    const signed = await signPayload(payload)
+    bodyStr = JSON.stringify(signed)
   }
 
   const res = await fetch(resolveApiPath(`/lyrics/${lyricId}/revisions`), {
     method: "POST",
     headers,
-    body: JSON.stringify(signed),
+    body: bodyStr,
   })
 
   if (!res.ok) {
     const errJson = await res.json().catch(() => null)
-    throw new Error(errJson?.error ?? `HTTP ${res.status}`)
+    throw new Error(errJson?.hint ?? errJson?.error ?? `HTTP ${res.status}`)
   }
 
   const json = await res.json()
@@ -398,22 +413,27 @@ export async function saveLyricRevision(
 
 export async function revertLyricRevision(lyricId: number, revId: number): Promise<void> {
   const session = loadStoredSession()
-  const signed = await signPayload()
   const headers: Record<string, string> = { "Content-Type": "application/json" }
-  if (session) {
+  let bodyStr: string
+
+  if (session?.sessionToken) {
     headers["Authorization"] = `Bearer ${session.sessionToken}`
     headers["X-Key-ID"] = session.keyId
+    bodyStr = JSON.stringify({})
+  } else {
+    const signed = await signPayload({})
+    bodyStr = JSON.stringify(signed)
   }
 
   const res = await fetch(resolveApiPath(`/lyrics/${lyricId}/revisions/${revId}/revert`), {
     method: "POST",
     headers,
-    body: JSON.stringify(signed),
+    body: bodyStr,
   })
 
   if (!res.ok) {
     const errJson = await res.json().catch(() => null)
-    throw new Error(errJson?.error ?? `HTTP ${res.status}`)
+    throw new Error(errJson?.hint ?? errJson?.error ?? `HTTP ${res.status}`)
   }
 }
 
@@ -430,22 +450,27 @@ export async function fetchLinkedVideos(lyricId: number): Promise<{ videos: Link
 
 export async function linkVideoToLyric(lyricId: number, videoId: string): Promise<{ videos: LinkedVideo[] }> {
   const session = loadStoredSession()
-  const signed = await signPayload({ videoId })
   const headers: Record<string, string> = { "Content-Type": "application/json" }
-  if (session) {
+  let bodyStr: string
+
+  if (session?.sessionToken) {
     headers["Authorization"] = `Bearer ${session.sessionToken}`
     headers["X-Key-ID"] = session.keyId
+    bodyStr = JSON.stringify({ videoId })
+  } else {
+    const signed = await signPayload({ videoId })
+    bodyStr = JSON.stringify(signed)
   }
 
   const res = await fetch(resolveApiPath(`/lyrics/${lyricId}/videos`), {
     method: "POST",
     headers,
-    body: JSON.stringify(signed),
+    body: bodyStr,
   })
 
   if (!res.ok) {
     const errJson = await res.json().catch(() => null)
-    throw new Error(errJson?.error ?? `HTTP ${res.status}`)
+    throw new Error(errJson?.hint ?? errJson?.error ?? `HTTP ${res.status}`)
   }
 
   const json = await res.json()
@@ -454,22 +479,27 @@ export async function linkVideoToLyric(lyricId: number, videoId: string): Promis
 
 export async function unlinkVideoFromLyric(lyricId: number, videoId: string): Promise<{ videos: LinkedVideo[] }> {
   const session = loadStoredSession()
-  const signed = await signPayload()
   const headers: Record<string, string> = { "Content-Type": "application/json" }
-  if (session) {
+  let bodyStr: string
+
+  if (session?.sessionToken) {
     headers["Authorization"] = `Bearer ${session.sessionToken}`
     headers["X-Key-ID"] = session.keyId
+    bodyStr = JSON.stringify({})
+  } else {
+    const signed = await signPayload({})
+    bodyStr = JSON.stringify(signed)
   }
 
   const res = await fetch(resolveApiPath(`/lyrics/${lyricId}/videos/${encodeURIComponent(videoId)}`), {
     method: "DELETE",
     headers,
-    body: JSON.stringify(signed),
+    body: bodyStr,
   })
 
   if (!res.ok) {
     const errJson = await res.json().catch(() => null)
-    throw new Error(errJson?.error ?? `HTTP ${res.status}`)
+    throw new Error(errJson?.hint ?? errJson?.error ?? `HTTP ${res.status}`)
   }
 
   const json = await res.json()
@@ -479,14 +509,22 @@ export async function unlinkVideoFromLyric(lyricId: number, videoId: string): Pr
 export async function fetchSuggestedVideos(lyricId: number): Promise<{ suggestions: VideoSuggestion[] }> {
   try {
     const session = loadStoredSession()
-    const headers: Record<string, string> = {}
-    if (session) {
+    const headers: Record<string, string> = { "Content-Type": "application/json" }
+    let bodyStr: string
+
+    if (session?.sessionToken) {
       headers["Authorization"] = `Bearer ${session.sessionToken}`
       headers["X-Key-ID"] = session.keyId
+      bodyStr = JSON.stringify({})
+    } else {
+      const signed = await signPayload({})
+      bodyStr = JSON.stringify(signed)
     }
+
     const res = await fetch(resolveApiPath(`/lyrics/${lyricId}/suggested-videos`), {
       method: "POST",
       headers,
+      body: bodyStr,
     })
     if (!res.ok) return { suggestions: [] }
     const json = await res.json()

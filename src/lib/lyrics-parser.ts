@@ -62,6 +62,22 @@ export function parseAndValidateLyrics(raw: string): ParseLyricsResult {
     if (titleMatch) extractedMeta.song = titleMatch[1].trim()
     const descMatch = trimmed.match(/<ttm:desc>([^<]+)<\/ttm:desc>/i)
     if (descMatch) extractedMeta.album = descMatch[1].trim()
+
+    // Extract duration from body dur="mm:ss.xxx" or last end timestamp
+    const durMatch = trimmed.match(/<body\b[^>]*\bdur="(\d{1,2}):(\d{2})(?:\.(\d+))?"/i)
+    if (durMatch) {
+      extractedMeta.duration = Math.round(Number(durMatch[1]) * 60 + Number(durMatch[2]) + (durMatch[3] ? Number(`0.${durMatch[3]}`) : 0))
+    } else {
+      const endMatches = Array.from(trimmed.matchAll(/\bend="(\d{1,2}):(\d{2})(?:\.(\d+))?"/gi))
+      if (endMatches.length > 0) {
+        let maxSec = 0
+        for (const m of endMatches) {
+          const sec = Number(m[1]) * 60 + Number(m[2]) + (m[3] ? Number(`0.${m[3]}`) : 0)
+          if (sec > maxSec) maxSec = sec
+        }
+        if (maxSec > 0) extractedMeta.duration = Math.ceil(maxSec)
+      }
+    }
   } else if (format === "lrc") {
     let lastTime = -1
 
@@ -93,6 +109,10 @@ export function parseAndValidateLyrics(raw: string): ParseLyricsResult {
         }
         lastTime = totalSec
       }
+    }
+
+    if (!extractedMeta.duration && lastTime > 0) {
+      extractedMeta.duration = Math.ceil(lastTime)
     }
 
     if (timedCount === 0) {

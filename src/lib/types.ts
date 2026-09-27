@@ -208,6 +208,7 @@ export interface VariantSummary {
   marks?: Mark[]
   userVote?: 1 | -1 | null
   createdAt?: number
+  duration?: number
 }
 
 export interface VariantFull extends VariantSummary {
