@@ -384,7 +384,7 @@ export function VariantMetadata({
                     </button>
                   )}
                 </div>
-                {onOpenEdit && (
+                {onOpenEdit && isOwner && (
                   <button
                     type="button"
                     onClick={onOpenEdit}

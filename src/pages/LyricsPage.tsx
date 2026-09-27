@@ -185,7 +185,7 @@ export function LyricsPage() {
               onActivatePlayer={activatePlayer}
               onOpenHistory={() => setHistoryOpen(true)}
               onOpenVideos={() => setVideosOpen(true)}
-              onOpenEdit={session.status === "signed-in" ? () => setEditOpen(true) : undefined}
+              onOpenEdit={isOwner ? () => setEditOpen(true) : undefined}
               isOwner={Boolean(isOwner)}
             />
           ) : (
