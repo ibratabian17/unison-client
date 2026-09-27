@@ -207,6 +207,7 @@ export interface VariantSummary {
   submitter?: VariantSubmitter
   marks?: Mark[]
   userVote?: 1 | -1 | null
+  createdAt?: number
 }
 
 export interface VariantFull extends VariantSummary {
@@ -330,3 +331,50 @@ export type AvatarChoice =
   | { type: "song"; ref: string }
   | { type: "discord" }
   | { type: "default" }
+
+export interface LyricRevision {
+  id: number
+  lyricId: number
+  version?: number
+  lyrics: string
+  format: LyricsFormat
+  language?: string
+  isrc?: string
+  status: "pending" | "approved" | "rejected"
+  createdAt: number
+  author?: {
+    keyId: string
+    displayName: string
+    avatarUrl?: string | null
+  }
+  summary?: string
+  driftScore?: number
+}
+
+export interface RevisionDiff {
+  oldLyrics?: string
+  newLyrics?: string
+  changes: Array<{
+    type: "add" | "remove" | "keep"
+    content: string
+    lineNumber?: number
+  }>
+}
+
+export interface LinkedVideo {
+  videoId: string
+  primary: boolean
+  title?: string
+  authorName?: string
+  duration?: number
+  addedAt?: number
+}
+
+export interface VideoSuggestion {
+  videoId: string
+  title: string
+  authorName?: string
+  duration?: number
+  matchType?: "official" | "lyric_video" | "audio"
+}
+

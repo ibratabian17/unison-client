@@ -10,14 +10,19 @@ import type {
   BadgeCatalogue,
   CuratorsLeaderboardResponse,
   DumpManifest,
+  LinkedVideo,
+  LyricRevision,
+  LyricsFormat,
   LyricsSearchHit,
   QueueEntry,
+  RevisionDiff,
   SongsLeaderboardResponse,
   UserGamification,
   UserRankResponse,
   UserSubmissionsResponse,
   VariantFull,
   VariantSummary,
+  VideoSuggestion,
 } from "./types"
 
 async function getJson<T>(path: string): Promise<T> {
@@ -328,4 +333,167 @@ export async function translateLyrics(
   const json = await res.json()
   return json.data ?? { translated: lines }
 }
+
+export async function fetchLyricRevisions(lyricId: number): Promise<{ revisions: LyricRevision[] }> {
+  try {
+    const res = await fetch(resolveApiPath(`/lyrics/${lyricId}/revisions`))
+    if (!res.ok) return { revisions: [] }
+    const json = await res.json()
+    return { revisions: json.data?.revisions ?? [] }
+  } catch {
+    return { revisions: [] }
+  }
+}
+
+export async function fetchRevisionDiff(
+  lyricId: number,
+  revId: number,
+  against?: number,
+): Promise<RevisionDiff | null> {
+  try {
+    const query = against !== undefined ? `?against=${against}` : ""
+    const res = await fetch(resolveApiPath(`/lyrics/${lyricId}/revisions/${revId}/diff${query}`))
+    if (!res.ok) return null
+    const json = await res.json()
+    return json.data ?? null
+  } catch {
+    return null
+  }
+}
+
+export async function saveLyricRevision(
+  lyricId: number,
+  input: {
+    lyrics: string
+    format: LyricsFormat
+    language?: string
+    isrc?: string
+    song?: string
+    artist?: string
+    album?: string
+  },
+): Promise<{ revision: LyricRevision }> {
+  const session = loadStoredSession()
+  const signed = await signPayload(input as unknown as Record<string, unknown>)
+  const headers: Record<string, string> = { "Content-Type": "application/json" }
+  if (session) {
+    headers["Authorization"] = `Bearer ${session.sessionToken}`
+    headers["X-Key-ID"] = session.keyId
+  }
+
+  const res = await fetch(resolveApiPath(`/lyrics/${lyricId}/revisions`), {
+    method: "POST",
+    headers,
+    body: JSON.stringify(signed),
+  })
+
+  if (!res.ok) {
+    const errJson = await res.json().catch(() => null)
+    throw new Error(errJson?.error ?? `HTTP ${res.status}`)
+  }
+
+  const json = await res.json()
+  return json.data ?? { revision: json.revision }
+}
+
+export async function revertLyricRevision(lyricId: number, revId: number): Promise<void> {
+  const session = loadStoredSession()
+  const signed = await signPayload()
+  const headers: Record<string, string> = { "Content-Type": "application/json" }
+  if (session) {
+    headers["Authorization"] = `Bearer ${session.sessionToken}`
+    headers["X-Key-ID"] = session.keyId
+  }
+
+  const res = await fetch(resolveApiPath(`/lyrics/${lyricId}/revisions/${revId}/revert`), {
+    method: "POST",
+    headers,
+    body: JSON.stringify(signed),
+  })
+
+  if (!res.ok) {
+    const errJson = await res.json().catch(() => null)
+    throw new Error(errJson?.error ?? `HTTP ${res.status}`)
+  }
+}
+
+export async function fetchLinkedVideos(lyricId: number): Promise<{ videos: LinkedVideo[] }> {
+  try {
+    const res = await fetch(resolveApiPath(`/lyrics/${lyricId}/videos`))
+    if (!res.ok) return { videos: [] }
+    const json = await res.json()
+    return { videos: json.data?.videos ?? [] }
+  } catch {
+    return { videos: [] }
+  }
+}
+
+export async function linkVideoToLyric(lyricId: number, videoId: string): Promise<{ videos: LinkedVideo[] }> {
+  const session = loadStoredSession()
+  const signed = await signPayload({ videoId })
+  const headers: Record<string, string> = { "Content-Type": "application/json" }
+  if (session) {
+    headers["Authorization"] = `Bearer ${session.sessionToken}`
+    headers["X-Key-ID"] = session.keyId
+  }
+
+  const res = await fetch(resolveApiPath(`/lyrics/${lyricId}/videos`), {
+    method: "POST",
+    headers,
+    body: JSON.stringify(signed),
+  })
+
+  if (!res.ok) {
+    const errJson = await res.json().catch(() => null)
+    throw new Error(errJson?.error ?? `HTTP ${res.status}`)
+  }
+
+  const json = await res.json()
+  return { videos: json.data?.videos ?? [] }
+}
+
+export async function unlinkVideoFromLyric(lyricId: number, videoId: string): Promise<{ videos: LinkedVideo[] }> {
+  const session = loadStoredSession()
+  const signed = await signPayload()
+  const headers: Record<string, string> = { "Content-Type": "application/json" }
+  if (session) {
+    headers["Authorization"] = `Bearer ${session.sessionToken}`
+    headers["X-Key-ID"] = session.keyId
+  }
+
+  const res = await fetch(resolveApiPath(`/lyrics/${lyricId}/videos/${encodeURIComponent(videoId)}`), {
+    method: "DELETE",
+    headers,
+    body: JSON.stringify(signed),
+  })
+
+  if (!res.ok) {
+    const errJson = await res.json().catch(() => null)
+    throw new Error(errJson?.error ?? `HTTP ${res.status}`)
+  }
+
+  const json = await res.json()
+  return { videos: json.data?.videos ?? [] }
+}
+
+export async function fetchSuggestedVideos(lyricId: number): Promise<{ suggestions: VideoSuggestion[] }> {
+  try {
+    const session = loadStoredSession()
+    const headers: Record<string, string> = {}
+    if (session) {
+      headers["Authorization"] = `Bearer ${session.sessionToken}`
+      headers["X-Key-ID"] = session.keyId
+    }
+    const res = await fetch(resolveApiPath(`/lyrics/${lyricId}/suggested-videos`), {
+      method: "POST",
+      headers,
+    })
+    if (!res.ok) return { suggestions: [] }
+    const json = await res.json()
+    return { suggestions: json.data?.suggestions ?? [] }
+  } catch {
+    return { suggestions: [] }
+  }
+}
+
 

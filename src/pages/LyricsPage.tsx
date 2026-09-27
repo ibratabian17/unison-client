@@ -13,7 +13,10 @@ import { VariantList, VariantListSkeleton } from "@/components/VariantList"
 import { VariantMetadata, VariantMetadataSkeleton } from "@/components/VariantMetadata"
 import { VoteControls } from "@/components/VoteControls"
 import { YouTubeMusicIcon } from "@/components/icons/YouTubeMusicIcon"
-import { IconFlag, IconLanguage, IconTrash, IconPlus } from "@tabler/icons-react"
+import { IconFlag, IconLanguage, IconTrash, IconPlus, IconBrandYoutube, IconEdit, IconHistory } from "@tabler/icons-react"
+import { EditLyricModal } from "@/components/EditLyricModal"
+import { RevisionHistoryModal } from "@/components/RevisionHistoryModal"
+import { LinkedVideosModal } from "@/components/LinkedVideosModal"
 import { useYouTubePlayer } from "@/hooks/useYouTubePlayer"
 import { cn } from "@/lib/cn"
 import { fetchLyricsVariant, fetchLyricsVariants, deleteLyrics } from "@/lib/api"
@@ -31,6 +34,9 @@ export function LyricsPage() {
   const [mode, setMode] = useState<Mode>("synced")
   const [playerActive, setPlayerActive] = useState(false)
   const [reportOpen, setReportOpen] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [videosOpen, setVideosOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const session = useSession()
   const queryClient = useQueryClient()
@@ -177,6 +183,10 @@ export function LyricsPage() {
               playerRef={ref}
               playerActive={playerActive}
               onActivatePlayer={activatePlayer}
+              onOpenHistory={() => setHistoryOpen(true)}
+              onOpenVideos={() => setVideosOpen(true)}
+              onOpenEdit={session.status === "signed-in" ? () => setEditOpen(true) : undefined}
+              isOwner={Boolean(isOwner)}
             />
           ) : (
             <VariantMetadataSkeleton />
@@ -288,12 +298,42 @@ export function LyricsPage() {
       </div>
 
       {variant && (
-        <ReportModal
-          variantId={variant.id}
-          songTitle={variant.song}
-          isOpen={reportOpen}
-          onClose={() => setReportOpen(false)}
-        />
+        <>
+          <EditLyricModal
+            variant={variant}
+            isOpen={editOpen}
+            onClose={() => setEditOpen(false)}
+            onSaved={() => {
+              void queryClient.invalidateQueries({ queryKey: ["lyrics", "variants", safeVideoId] })
+              void queryClient.invalidateQueries({ queryKey: ["lyrics", "variant", selectedId] })
+            }}
+          />
+          <RevisionHistoryModal
+            variant={variant}
+            isOwner={Boolean(isOwner)}
+            isOpen={historyOpen}
+            onClose={() => setHistoryOpen(false)}
+            onReverted={() => {
+              void queryClient.invalidateQueries({ queryKey: ["lyrics", "variants", safeVideoId] })
+              void queryClient.invalidateQueries({ queryKey: ["lyrics", "variant", selectedId] })
+            }}
+          />
+          <LinkedVideosModal
+            variant={variant}
+            isOwner={Boolean(isOwner)}
+            isOpen={videosOpen}
+            onClose={() => setVideosOpen(false)}
+            onUpdated={() => {
+              void queryClient.invalidateQueries({ queryKey: ["lyrics", "variants", safeVideoId] })
+            }}
+          />
+          <ReportModal
+            variantId={variant.id}
+            songTitle={variant.song}
+            isOpen={reportOpen}
+            onClose={() => setReportOpen(false)}
+          />
+        </>
       )}
     </div>
   )

@@ -1,4 +1,4 @@
-import { IconPlayerPlayFilled } from "@tabler/icons-react"
+import { IconBrandYoutube, IconEdit, IconHistory, IconPlayerPlayFilled } from "@tabler/icons-react"
 import { AnimatePresence, MotionConfig, motion } from "motion/react"
 import { Link } from "react-router-dom"
 import { useBadgeCatalogueOptional } from "@/components/BadgeCatalogueContext"
@@ -261,9 +261,22 @@ interface VariantMetadataProps {
   playerRef?: (node: HTMLDivElement | null) => void
   playerActive?: boolean
   onActivatePlayer?: () => void
+  onOpenHistory?: () => void
+  onOpenVideos?: () => void
+  onOpenEdit?: () => void
+  isOwner?: boolean
 }
 
-export function VariantMetadata({ variant, playerRef, playerActive, onActivatePlayer }: VariantMetadataProps) {
+export function VariantMetadata({
+  variant,
+  playerRef,
+  playerActive,
+  onActivatePlayer,
+  onOpenHistory,
+  onOpenVideos,
+  onOpenEdit,
+  isOwner,
+}: VariantMetadataProps) {
   return (
     <aside className="overflow-hidden rounded-xl border border-unison-border bg-unison-bg-elevated">
       <Cover variant={variant} playerRef={playerRef} playerActive={playerActive} onActivatePlayer={onActivatePlayer} />
@@ -304,9 +317,9 @@ export function VariantMetadata({ variant, playerRef, playerActive, onActivatePl
             <Pill tip={SYNC_TIP[variant.syncType] ?? variant.syncType} gold={variant.syncType === "richsync"}>
               {variant.syncType}
             </Pill>
-            <Pill tip={FORMAT_TIP[variant.format] ?? variant.format}>{variant.format.toUpperCase()}</Pill>
+            <Pill tip={FORMAT_TIP[variant.format] ?? variant.format}>{(variant.format ?? "lrc").toUpperCase()}</Pill>
             {variant.language ? (
-              <Pill tip={`Lyrics language: ${langName(variant.language)}.`}>{variant.language.toUpperCase()}</Pill>
+              <Pill tip={`Lyrics language: ${langName(variant.language)}.`}>{(variant.language ?? "").toUpperCase()}</Pill>
             ) : null}
             <Pill tip={CONFIDENCE_TIP(variant.confidence)}>{variant.confidence}</Pill>
           </div>
@@ -344,6 +357,46 @@ export function VariantMetadata({ variant, playerRef, playerActive, onActivatePl
               <SubmitterRow variant={variant} />
             </>
           ) : null}
+
+          {(onOpenVideos || onOpenHistory || onOpenEdit) && (
+            <>
+              <div className="h-px bg-unison-border" />
+              <div className="space-y-1.5 pt-0.5">
+                <div className="grid grid-cols-2 gap-1.5">
+                  {onOpenVideos && (
+                    <button
+                      type="button"
+                      onClick={onOpenVideos}
+                      className="flex items-center justify-center gap-1.5 rounded-[9px] border border-unison-border bg-unison-surface py-2 px-2 text-[12px] font-medium text-unison-text-secondary hover:text-unison-text hover:bg-unison-bg-hover transition-colors cursor-pointer"
+                    >
+                      <IconBrandYoutube className="size-3.5 text-red-500" />
+                      <span>Videos</span>
+                    </button>
+                  )}
+                  {onOpenHistory && (
+                    <button
+                      type="button"
+                      onClick={onOpenHistory}
+                      className="flex items-center justify-center gap-1.5 rounded-[9px] border border-unison-border bg-unison-surface py-2 px-2 text-[12px] font-medium text-unison-text-secondary hover:text-unison-text hover:bg-unison-bg-hover transition-colors cursor-pointer"
+                    >
+                      <IconHistory className="size-3.5 text-unison-text-secondary" />
+                      <span>Revisions</span>
+                    </button>
+                  )}
+                </div>
+                {onOpenEdit && (
+                  <button
+                    type="button"
+                    onClick={onOpenEdit}
+                    className="w-full flex items-center justify-center gap-1.5 rounded-[9px] border border-unison-border bg-unison-surface py-2 px-2.5 text-[12px] font-semibold text-unison-text hover:bg-unison-bg-hover transition-colors cursor-pointer"
+                  >
+                    <IconEdit className="size-3.5 text-unison-text-secondary" />
+                    <span>Edit Metadata & Lyrics</span>
+                  </button>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </div>
     </aside>

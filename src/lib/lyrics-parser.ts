@@ -112,3 +112,11 @@ export function parseAndValidateLyrics(raw: string): ParseLyricsResult {
     extractedMeta,
   }
 }
+
+export function extractVideoId(input: string): string {
+  const trimmed = input.trim()
+  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) return trimmed
+  const urlMatch = trimmed.match(/(?:v=|\/embed\/|\.be\/|\/v\/|watch\?v=|\/shorts\/)([a-zA-Z0-9_-]{11})/)
+  return urlMatch ? urlMatch[1] : trimmed
+}
+
