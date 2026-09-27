@@ -48,7 +48,7 @@ export function SubmitPage() {
   const [finderOpen, setFinderOpen] = useState(false)
   const [fetchingMetadata, setFetchingMetadata] = useState(false)
   const [matchedAppleTrack, setMatchedAppleTrack] = useState<string | null>(null)
-  const [videoDuration, setVideoDuration] = useState<number | null>(null)
+  const hasInitializedDurationRef = useRef(false)
 
   const [isDragOver, setIsDragOver] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -60,7 +60,7 @@ export function SubmitPage() {
   const isValidVideoId = useMemo(() => /^[a-zA-Z0-9_-]{11}$/.test(cleanVideoId), [cleanVideoId])
 
   useEffect(() => {
-    setVideoDuration(null)
+    hasInitializedDurationRef.current = false
   }, [cleanVideoId])
 
   // Validation & format parsing
@@ -73,10 +73,9 @@ export function SubmitPage() {
     {
       playerVars: { autoplay: 0 },
       onDurationChange: (dur) => {
-        if (dur > 0) {
-          const rounded = Math.round(dur)
-          setVideoDuration(rounded)
-          setDuration(rounded)
+        if (dur > 0 && !hasInitializedDurationRef.current) {
+          hasInitializedDurationRef.current = true
+          setDuration(Math.round(dur))
         }
       },
     }
@@ -86,10 +85,12 @@ export function SubmitPage() {
   useEffect(() => {
     const timer = setInterval(() => {
       setIsPlaying(getPlaying())
-      const dur = Math.round(getDuration())
-      if (dur > 0) {
-        setVideoDuration(dur)
-        setDuration(dur)
+      if (!hasInitializedDurationRef.current) {
+        const dur = Math.round(getDuration())
+        if (dur > 0) {
+          hasInitializedDurationRef.current = true
+          setDuration(dur)
+        }
       }
     }, 250)
     return () => clearInterval(timer)
@@ -135,11 +136,6 @@ export function SubmitPage() {
               setSong(bestMatch.name)
               setArtist(bestMatch.artistName)
               if (bestMatch.albumName) setAlbum(bestMatch.albumName)
-              // Only fallback to Apple Music duration if no video duration is known
-              if (bestMatch.durationInMillis) {
-                const appleDur = Math.round(bestMatch.durationInMillis / 1000)
-                setDuration((prev) => (prev && typeof prev === "number" && prev > 0 ? prev : appleDur))
-              }
               if (bestMatch.isrc) setIsrc(bestMatch.isrc)
               setMatchedAppleTrack(`${bestMatch.name} · ${bestMatch.artistName}`)
             }
@@ -298,7 +294,6 @@ export function SubmitPage() {
     if (meta.song) setSong(meta.song)
     if (meta.artist) setArtist(meta.artist)
     if (meta.album) setAlbum(meta.album)
-    if (!videoDuration && meta.duration) setDuration(meta.duration)
     if (meta.isrc) setIsrc(meta.isrc)
   }
 
@@ -457,14 +452,9 @@ export function SubmitPage() {
           {/* 3-col Row for Duration, ISRC, Format */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <label className="space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-unison-text-secondary">
-                  Duration <span className="text-[10px] text-unison-text-muted font-normal">(sec)</span>
-                </span>
-                {videoDuration ? (
-                  <span className="text-[10px] text-emerald-400 font-medium">Video length</span>
-                ) : null}
-              </div>
+              <span className="text-xs font-medium text-unison-text-secondary">
+                Duration <span className="text-[10px] text-unison-text-muted font-normal">(sec)</span>
+              </span>
               <input
                 type="number"
                 min="0"
