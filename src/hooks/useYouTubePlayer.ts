@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 
 interface YTPlayer {
   getCurrentTime(): number
+  getDuration(): number
   getPlayerState(): number
   seekTo(seconds: number, allowSeekAhead: boolean): void
   playVideo(): void
@@ -84,6 +85,7 @@ export function __resetForTests(): void {
 export interface UseYouTubePlayerResult {
   ref: (node: HTMLDivElement | null) => void
   getCurrentTime: () => number
+  getDuration: () => number
   getPlaying: () => boolean
   seekTo: (seconds: number) => void
   play: () => void
@@ -92,6 +94,7 @@ export interface UseYouTubePlayerResult {
 
 export interface UseYouTubePlayerOptions {
   playerVars?: Record<string, string | number>
+  onDurationChange?: (duration: number) => void
 }
 
 export function useYouTubePlayer(videoId: string | null, options?: UseYouTubePlayerOptions): UseYouTubePlayerResult {
@@ -109,6 +112,8 @@ export function useYouTubePlayer(videoId: string | null, options?: UseYouTubePla
   // pass a fresh options object each render without forcing a rebuild.
   const playerVarsRef = useRef(options?.playerVars)
   playerVarsRef.current = options?.playerVars
+  const onDurationChangeRef = useRef(options?.onDurationChange)
+  onDurationChangeRef.current = options?.onDurationChange
 
   useEffect(() => {
     if (!videoId || !node) return
@@ -130,6 +135,12 @@ export function useYouTubePlayer(videoId: string | null, options?: UseYouTubePla
           onReady: () => {
             if (cancelled) return
             readyRef.current = true
+            try {
+              const dur = player.getDuration?.() ?? 0
+              if (dur > 0 && onDurationChangeRef.current) {
+                onDurationChangeRef.current(dur)
+              }
+            } catch {}
             if (pendingSeekRef.current !== null) {
               player.seekTo(pendingSeekRef.current, true)
               pendingSeekRef.current = null
@@ -138,6 +149,14 @@ export function useYouTubePlayer(videoId: string | null, options?: UseYouTubePla
               player.playVideo()
               pendingPlayRef.current = false
             }
+          },
+          onStateChange: () => {
+            try {
+              const dur = player.getDuration?.() ?? 0
+              if (dur > 0 && onDurationChangeRef.current) {
+                onDurationChangeRef.current(dur)
+              }
+            } catch {}
           },
         },
       })
@@ -189,11 +208,21 @@ export function useYouTubePlayer(videoId: string | null, options?: UseYouTubePla
     return player.getCurrentTime()
   }, [])
 
+  const getDuration = useCallback(() => {
+    const player = playerRef.current
+    if (!player || !readyRef.current) return 0
+    try {
+      return player.getDuration()
+    } catch {
+      return 0
+    }
+  }, [])
+
   const getPlaying = useCallback(() => {
     const player = playerRef.current
     if (!player || !readyRef.current) return false
     return player.getPlayerState() === YT_STATE_PLAYING
   }, [])
 
-  return { ref: setNode, getCurrentTime, getPlaying, seekTo, play, pause }
+  return { ref: setNode, getCurrentTime, getDuration, getPlaying, seekTo, play, pause }
 }

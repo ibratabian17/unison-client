@@ -48,6 +48,7 @@ export function SubmitPage() {
   const [finderOpen, setFinderOpen] = useState(false)
   const [fetchingMetadata, setFetchingMetadata] = useState(false)
   const [matchedAppleTrack, setMatchedAppleTrack] = useState<string | null>(null)
+  const [videoDuration, setVideoDuration] = useState<number | null>(null)
 
   const [isDragOver, setIsDragOver] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -58,23 +59,41 @@ export function SubmitPage() {
   const cleanVideoId = useMemo(() => extractVideoId(videoIdInput), [videoIdInput])
   const isValidVideoId = useMemo(() => /^[a-zA-Z0-9_-]{11}$/.test(cleanVideoId), [cleanVideoId])
 
+  useEffect(() => {
+    setVideoDuration(null)
+  }, [cleanVideoId])
+
   // Validation & format parsing
   const validation = useMemo(() => parseAndValidateLyrics(lyricsText), [lyricsText])
   const activeFormat: LyricsFormat = formatChoice === "auto" ? validation.format : formatChoice
 
   // YouTube Player for synchronized playback
-  const { ref: playerRef, getCurrentTime, getPlaying, seekTo, play, pause } = useYouTubePlayer(
+  const { ref: playerRef, getCurrentTime, getDuration, getPlaying, seekTo, play, pause } = useYouTubePlayer(
     isValidVideoId ? cleanVideoId : null,
-    { playerVars: { autoplay: 0 } }
+    {
+      playerVars: { autoplay: 0 },
+      onDurationChange: (dur) => {
+        if (dur > 0) {
+          const rounded = Math.round(dur)
+          setVideoDuration(rounded)
+          setDuration(rounded)
+        }
+      },
+    }
   )
 
   const [isPlaying, setIsPlaying] = useState(false)
   useEffect(() => {
     const timer = setInterval(() => {
       setIsPlaying(getPlaying())
+      const dur = Math.round(getDuration())
+      if (dur > 0) {
+        setVideoDuration(dur)
+        setDuration(dur)
+      }
     }, 250)
     return () => clearInterval(timer)
-  }, [getPlaying])
+  }, [getPlaying, getDuration])
 
   // Auto-fetch metadata from YouTube and match with Apple Music
   useEffect(() => {
@@ -116,8 +135,10 @@ export function SubmitPage() {
               setSong(bestMatch.name)
               setArtist(bestMatch.artistName)
               if (bestMatch.albumName) setAlbum(bestMatch.albumName)
+              // Only fallback to Apple Music duration if no video duration is known
               if (bestMatch.durationInMillis) {
-                setDuration(Math.round(bestMatch.durationInMillis / 1000))
+                const appleDur = Math.round(bestMatch.durationInMillis / 1000)
+                setDuration((prev) => (prev && typeof prev === "number" && prev > 0 ? prev : appleDur))
               }
               if (bestMatch.isrc) setIsrc(bestMatch.isrc)
               setMatchedAppleTrack(`${bestMatch.name} · ${bestMatch.artistName}`)
@@ -277,7 +298,7 @@ export function SubmitPage() {
     if (meta.song) setSong(meta.song)
     if (meta.artist) setArtist(meta.artist)
     if (meta.album) setAlbum(meta.album)
-    if (meta.duration) setDuration(meta.duration)
+    if (!videoDuration && meta.duration) setDuration(meta.duration)
     if (meta.isrc) setIsrc(meta.isrc)
   }
 
@@ -436,9 +457,14 @@ export function SubmitPage() {
           {/* 3-col Row for Duration, ISRC, Format */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <label className="space-y-1">
-              <span className="text-xs font-medium text-unison-text-secondary">
-                Duration <span className="text-[10px] text-unison-text-muted font-normal">(sec)</span>
-              </span>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-unison-text-secondary">
+                  Duration <span className="text-[10px] text-unison-text-muted font-normal">(sec)</span>
+                </span>
+                {videoDuration ? (
+                  <span className="text-[10px] text-emerald-400 font-medium">Video length</span>
+                ) : null}
+              </div>
               <input
                 type="number"
                 min="0"
