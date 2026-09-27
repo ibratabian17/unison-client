@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useSession } from "@/auth/useSession"
 import { editableCardClass } from "@/components/ui"
-import { checkNicknameAvailability, deleteNickname, putNickname } from "@/lib/nickname"
+import { checkNicknameAvailability, deleteNickname, isPublicAccount, putNickname } from "@/lib/nickname"
 
 const DEBOUNCE_MS = 350
 const RATE_LIMIT_COOLDOWN_MS = 5000
@@ -169,6 +169,24 @@ export function NicknameEditor() {
   )
 
   if (session.status !== "signed-in") return null
+
+  if (isPublicAccount(session.identity.keyId)) {
+    return (
+      <div data-testid="nickname-editor-public" className={editableCardClass}>
+        <div className="space-y-1.5">
+          <label className="text-[10px] uppercase tracking-wider text-unison-text-muted">
+            Nickname
+          </label>
+          <div className="rounded-md border border-unison-border bg-unison-bg px-3 py-2 text-sm text-unison-text-secondary">
+            {session.identity.displayName}
+          </div>
+          <p className="text-xs text-unison-text-muted">
+            Username changes are only available on private accounts. Sign in with your identity file or the Better Lyrics extension to customize your username.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   const currentName = session.identity.displayName
   const value = inputValue(state, currentName)

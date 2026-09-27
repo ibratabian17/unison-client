@@ -370,4 +370,33 @@ describe("NicknameEditor", () => {
     await flush()
     expect(screen.getByTestId("nickname-status").textContent ?? "").toMatch(/try again in a moment/i)
   })
+
+  it("renders read-only notice when signed in with the public community account", async () => {
+    const publicSession: StoredSession = {
+      sessionToken: "tok",
+      keyId: "cea10b57de8e060ed1a180a00c2bc717a2ab4f231d88fd33ffa6a50a04f23b6e",
+      displayName: "MysticSnareRise",
+      expiresAt: Math.floor(Date.now() / 1000) + 1000,
+    }
+    saveStoredSession(publicSession)
+    const router = fetchRouter([
+      {
+        match: (u) => u === "/auth/me",
+        respond: () =>
+          jsonResponse({
+            success: true,
+            data: {
+              keyId: publicSession.keyId,
+              displayName: publicSession.displayName,
+              expiresAt: publicSession.expiresAt,
+            },
+          }),
+      },
+    ])
+    vi.stubGlobal("fetch", router.fn)
+    await mountEditor()
+    expect(screen.getByTestId("nickname-editor-public")).toBeTruthy()
+    expect(screen.getByText(/Username changes are only available on private accounts/i)).toBeTruthy()
+    expect(screen.queryByRole("button", { name: /save/i })).toBeNull()
+  })
 })

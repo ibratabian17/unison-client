@@ -10,6 +10,12 @@ export interface NicknameMutationResponse {
   displayName: string
 }
 
+export const PUBLIC_COMMUNITY_KEY_ID = "cea10b57de8e060ed1a180a00c2bc717a2ab4f231d88fd33ffa6a50a04f23b6e"
+
+export function isPublicAccount(keyId?: string | null): boolean {
+  return keyId === PUBLIC_COMMUNITY_KEY_ID
+}
+
 export async function checkNicknameAvailability(nickname: string): Promise<AvailabilityResponse> {
   return authedFetch<AvailabilityResponse>("/auth/nickname/check", {
     method: "POST",
