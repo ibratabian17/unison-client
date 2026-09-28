@@ -339,6 +339,43 @@ export async function translateLyrics(
   sourceLang?: string,
   videoId?: string,
 ): Promise<TranslateResult> {
+  if (lines.length === 0) {
+    return {
+      lines: [],
+      detectedLang: sourceLang ?? "",
+      provider: "google-lyrics-translate",
+      cached: false,
+      translated: [],
+    }
+  }
+
+  // Backend maxLines limit is 200 per request
+  const CHUNK_SIZE = 200
+  if (lines.length > CHUNK_SIZE) {
+    const chunks: string[][] = []
+    for (let i = 0; i < lines.length; i += CHUNK_SIZE) {
+      chunks.push(lines.slice(i, i + CHUNK_SIZE))
+    }
+    const chunkResults = await Promise.all(
+      chunks.map((c) => translateLyrics(c, targetLang, sourceLang, videoId)),
+    )
+    const combinedLines = chunkResults.flatMap((r) => r.lines)
+    const combinedTranslated = chunkResults.flatMap((r) => r.translated)
+    const hasRom = chunkResults.some((r) => Boolean(r.romanized))
+    const combinedRomanized = hasRom
+      ? chunkResults.flatMap((r) => r.romanized ?? r.lines.map(() => ""))
+      : undefined
+
+    return {
+      lines: combinedLines,
+      detectedLang: chunkResults[0]?.detectedLang ?? "",
+      provider: chunkResults[0]?.provider ?? "google-lyrics-translate",
+      cached: chunkResults.every((r) => r.cached),
+      translated: combinedTranslated,
+      romanized: combinedRomanized,
+    }
+  }
+
   const payload: Record<string, unknown> = {
     lines,
     to: targetLang,
@@ -354,7 +391,7 @@ export async function translateLyrics(
 
   if (!res.ok) {
     const errJson = await res.json().catch(() => null)
-    throw new Error(errJson?.error ?? `HTTP ${res.status}`)
+    throw new Error(errJson?.hint ?? errJson?.error ?? `HTTP ${res.status}`)
   }
 
   const json = await res.json()

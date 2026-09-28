@@ -236,7 +236,9 @@ export function LyricsPage() {
                   <button
                     type="button"
                     onClick={() =>
-                      navigate(`/translate?lyrics=${encodeURIComponent(variant.lyrics)}`)
+                      navigate(`/translate?lyrics=${encodeURIComponent(variant.lyrics)}`, {
+                        state: { lyrics: variant.lyrics },
+                      })
                     }
                     className={HEADER_ACTION_CLASS}
                     title="Translate in Unison Translator"
