@@ -45,6 +45,7 @@ if (import.meta.env.DEV) {
 import { FeedPage } from "./pages/FeedPage"
 import { SubmitPage } from "./pages/SubmitPage"
 import { TranslatePage } from "./pages/TranslatePage"
+import { SealedPage } from "./pages/SealedPage"
 import { councilRoute } from "./pages/council/routes"
 
 const isGitHubPages = typeof window !== "undefined" && window.location.hostname.includes("github.io")
@@ -58,6 +59,7 @@ const router = createRouter([
       { index: true, element: <FeedPage /> },
       { path: "feed", element: <FeedPage /> },
       { path: "songs", element: <FeedPage /> },
+      { path: "sealed", element: <SealedPage /> },
       { path: "submit", element: <SubmitPage /> },
       { path: "translate", element: <TranslatePage /> },
       { path: "queue", element: <QueuePage /> },

@@ -1,15 +1,24 @@
 import { EmptyState } from "@/components/EmptyState"
 import { ListSearch, fieldClass } from "@/components/council/ListSearch"
 import { SealDetail } from "@/components/council/SealDetail"
-import { Segmented } from "@/components/council/Segmented"
+import { ToggleSegments } from "@/components/council/Segmented"
 import { NothingSelected, TriageList, TriageListSkeleton, TriageShell } from "@/components/council/TriageList"
 import { TriageRow, queueRowParts } from "@/components/council/TriageRow"
 import { PageHead } from "@/components/council/headings"
-import { useCouncilOverview, useCouncilQueue } from "@/hooks/useCouncilData"
+import { useCouncilOverview, useCouncilQueue, useSealableVariants } from "@/hooks/useCouncilData"
 import { useCouncilDecision } from "@/hooks/useCouncilMutations"
 import { useTriage } from "@/hooks/useTriage"
-import { type QueueFilter, type QueueSort, filterQueue, languageFilters, sortQueue } from "@/lib/council-triage"
+import {
+  type FlagFilter,
+  NO_FILTERS,
+  type QueueFilters,
+  type QueueSort,
+  filterQueue,
+  languageFilters,
+  sortQueue,
+} from "@/lib/council-triage"
 import type { QueueItem } from "@/lib/council-types"
+import { videoIdFromInput } from "@/lib/youtube-music"
 import { IconCheck } from "@tabler/icons-react"
 import { useState } from "react"
 import { useCouncilContext } from "./context"
@@ -24,10 +33,35 @@ export function CouncilQueuePage() {
   const decision = useCouncilDecision()
   const [text, setText] = useState("")
   const [sort, setSort] = useState<QueueSort>("top")
-  const [filter, setFilter] = useState<QueueFilter>("all")
-  const shown = sortQueue(filterQueue(queue ?? [], { text, filter }), sort)
-  const triage = useTriage({ all: queue, shown, entry, meKeyId, now })
+  const [filters, setFilters] = useState<QueueFilters>(NO_FILTERS)
+  const linkedVideo = videoIdFromInput(text)
+  const sealable = useSealableVariants(linkedVideo).data
+  const queued = new Set(queue?.map((item) => item.id))
+  const linked = new Set(linkedVideo ? sealable?.map((item) => item.id) : [])
+  const outside = linkedVideo && queue ? (sealable ?? []).filter((item) => !queued.has(item.id)) : []
+  const matched = filterQueue(queue ?? [], { text, ...filters })
+  const linkedInQueue = filterQueue(
+    (queue ?? []).filter((item) => linked.has(item.id) && !matched.includes(item)),
+    { text: "", ...filters },
+  )
+  const shown = sortQueue([...matched, ...linkedInQueue], sort)
+  const extra = filterQueue(outside, { text: "", ...filters })
+  const triage = useTriage({ all: queue, shown, extra, entry, meKeyId, now })
   const selected = triage.selectedItem
+
+  const flagOption = (flags: FlagFilter, label: string) => ({
+    key: flags,
+    label,
+    pressed: filters.flags === flags,
+    onToggle: () => setFilters((f) => ({ ...f, flags: f.flags === flags ? "any" : flags })),
+  })
+  const toggleLanguage = (language: string) =>
+    setFilters((f) => ({
+      ...f,
+      languages: f.languages.includes(language)
+        ? f.languages.filter((l) => l !== language)
+        : [...f.languages, language],
+    }))
 
   const row = (item: QueueItem) => (
     <TriageRow
@@ -35,7 +69,7 @@ export function CouncilQueuePage() {
       triage={triage}
       itemKey={entry(item).key}
       item={item}
-      {...queueRowParts(item, triage.heldByOther(item), now)}
+      {...queueRowParts(item, triage.heldByOther(item), now, !queued.has(item.id))}
     />
   )
 
@@ -43,7 +77,7 @@ export function CouncilQueuePage() {
     <>
       <PageHead
         title="Seal queue"
-        sub="Top-ranked variant per song with a positive score, not yet sealed or rejected. Seals are for the exceptional."
+        sub="The best-rated lyric for each song that nobody has sealed or rejected yet. Paste a song link to find one that is not listed."
       />
       <TriageShell
         list={
@@ -58,9 +92,10 @@ export function CouncilQueuePage() {
                   <div className="flex items-center gap-2">
                     <ListSearch
                       ref={triage.searchRef}
+                      className="flex-1"
                       value={text}
                       onChange={setText}
-                      placeholder="Filter by song, artist, submitter"
+                      placeholder="Filter, or paste a song link"
                     />
                     <select
                       aria-label="Sort"
@@ -74,24 +109,35 @@ export function CouncilQueuePage() {
                     </select>
                   </div>
                   <div>
-                    <Segmented
+                    <ToggleSegments
                       label="Filter"
-                      value={filter}
-                      onChange={setFilter}
                       options={[
-                        { value: "all", label: "All" },
-                        { value: "flags", label: "Has flags" },
+                        {
+                          key: "all",
+                          label: "All",
+                          pressed: filters.flags === "any" && filters.languages.length === 0,
+                          onToggle: () => setFilters(NO_FILTERS),
+                        },
+                        flagOption("flagged", "Has flags"),
+                        flagOption("clean", "No flags"),
                         ...languageFilters(queue).map((language) => ({
-                          value: language,
+                          key: language,
                           label: language.toUpperCase(),
+                          pressed: filters.languages.includes(language),
+                          onToggle: () => toggleLanguage(language),
                         })),
                       ]}
                     />
                   </div>
                 </>
               }
+              noMatch={
+                linkedVideo && sealable
+                  ? "Nothing to seal for this song. Its lyrics are already sealed, rejected, hidden or not rated well enough yet."
+                  : undefined
+              }
               empty={
-                queue.length === 0 ? (
+                queue.length === 0 && !linkedVideo ? (
                   <EmptyState
                     icon={<IconCheck className="size-5" stroke={1.5} />}
                     title="The seal queue is clear"

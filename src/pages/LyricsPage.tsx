@@ -2,28 +2,24 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useCallback, useMemo, useState } from "react"
 import { useLocation, useNavigate, useParams, useSearchParams, Link } from "react-router-dom"
 import { useSession } from "@/auth/useSession"
-import { CopyButton } from "@/components/CopyButton"
-import { DownloadButton } from "@/components/DownloadButton"
 import { EmptyState } from "@/components/EmptyState"
-import { LyricsContentSkeleton, LyricsRenderer } from "@/components/LyricsRenderer"
-import { RawLyricsView } from "@/components/RawLyricsView"
+import { LyricsContentSkeleton } from "@/components/LyricsRenderer"
+import { LyricsPanel } from "@/components/LyricsPanel"
 import { ReportModal } from "@/components/ReportModal"
 import { Bone } from "@/components/skeleton"
 import { VariantList, VariantListSkeleton } from "@/components/VariantList"
 import { VariantMetadata, VariantMetadataSkeleton } from "@/components/VariantMetadata"
+import { SealLyricButton } from "@/components/council/SealLyricButton"
 import { VoteControls } from "@/components/VoteControls"
 import { YouTubeMusicIcon } from "@/components/icons/YouTubeMusicIcon"
-import { IconFlag, IconLanguage, IconTrash, IconPlus, IconBrandYoutube, IconEdit, IconHistory } from "@tabler/icons-react"
+import { IconPlus, IconFlag, IconTrash } from "@tabler/icons-react"
 import { EditLyricModal } from "@/components/EditLyricModal"
 import { RevisionHistoryModal } from "@/components/RevisionHistoryModal"
 import { LinkedVideosModal } from "@/components/LinkedVideosModal"
 import { useYouTubePlayer } from "@/hooks/useYouTubePlayer"
-import { cn } from "@/lib/cn"
 import { fetchLyricsVariant, fetchLyricsVariants, deleteLyrics } from "@/lib/api"
-import { downloadTextFile } from "@/lib/download"
-import { lyricsFilename, MIME_BY_FORMAT } from "@/lib/lyrics-download"
-
-type Mode = "synced" | "raw"
+import { youTubeMusicUrl } from "@/lib/youtube-music"
+import { cn } from "@/lib/cn"
 
 const HEADER_ACTION_CLASS =
   "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-unison-border bg-unison-bg-elevated px-2 py-1 text-xs text-unison-text-secondary transition-colors hover:border-unison-border-strong hover:bg-unison-bg-hover hover:text-unison-text"
@@ -31,7 +27,6 @@ const HEADER_ACTION_CLASS =
 export function LyricsPage() {
   const { videoId } = useParams<{ videoId: string }>()
   const [params, setParams] = useSearchParams()
-  const [mode, setMode] = useState<Mode>("synced")
   const [playerActive, setPlayerActive] = useState(false)
   const [reportOpen, setReportOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
@@ -105,12 +100,6 @@ export function LyricsPage() {
     [seekTo, play],
   )
 
-  const handleDownload = useCallback(() => {
-    const v = variantQuery.data?.variant
-    if (!v) return
-    downloadTextFile(lyricsFilename(v), v.lyrics, MIME_BY_FORMAT[v.format])
-  }, [variantQuery.data])
-
   const handleDelete = async () => {
     const v = variantQuery.data?.variant
     if (!v) return
@@ -166,15 +155,19 @@ export function LyricsPage() {
           ‹ back
         </button>
         {variant && selectedId !== undefined ? (
-          <VoteControls
-            variantId={variant.id}
-            videoId={safeVideoId}
-            variant={{ score: variant.score, userVote: variant.userVote ?? null }}
-          />
+          <div className="flex items-center gap-3">
+            <SealLyricButton videoId={safeVideoId} lyricsId={variant.id} />
+            <VoteControls
+              variantId={variant.id}
+              videoId={safeVideoId}
+              variant={{ score: variant.score, userVote: variant.userVote ?? null }}
+            />
+          </div>
         ) : (
           <Bone className="h-9 w-28 rounded-lg" />
         )}
       </div>
+
       <div className="grid gap-6 sm:grid-cols-[minmax(0,384px)_minmax(0,1fr)]">
         <div className="space-y-4">
           {variant ? (
@@ -191,110 +184,57 @@ export function LyricsPage() {
           ) : (
             <VariantMetadataSkeleton />
           )}
-          <a
-            href={`https://music.youtube.com/watch?v=${safeVideoId}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center justify-center gap-2 rounded-[10px] bg-white/[0.08] px-4 py-3 text-[13px] font-semibold text-unison-text shadow-[0_1px_2px_rgba(0,0,0,0.4),inset_0_1px_0_0_rgba(255,255,255,0.07)] transition-colors hover:bg-white/[0.12] active:translate-y-px"
-          >
-            <YouTubeMusicIcon className="size-[18px]" />
-            Open on YouTube Music
-          </a>
-        </div>
-        <div className="space-y-4">
-          <div className="overflow-hidden rounded-lg border border-unison-border bg-unison-bg-elevated">
-            <div className="flex items-center justify-between border-b border-unison-border/60 px-3 py-2">
-              <fieldset className="inline-flex rounded-md border border-unison-border bg-unison-bg p-0.5">
-                <legend className="sr-only">Lyrics display mode</legend>
+
+          <div className="flex flex-col gap-2">
+            <a
+              href={youTubeMusicUrl(safeVideoId)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 rounded-[10px] bg-white/[0.08] px-4 py-3 text-[13px] font-semibold text-unison-text shadow-[0_1px_2px_rgba(0,0,0,0.4),inset_0_1px_0_0_rgba(255,255,255,0.07)] transition-colors hover:bg-white/[0.12] active:translate-y-px"
+            >
+              <YouTubeMusicIcon className="size-[18px]" />
+              Open on YouTube Music
+            </a>
+
+            {variant && (
+              <div className="flex items-center justify-between gap-2 pt-1">
                 <button
                   type="button"
-                  onClick={() => setMode("synced")}
-                  className={cn(
-                    "cursor-pointer rounded px-3 py-1 text-xs font-medium transition-colors",
-                    mode === "synced"
-                      ? "bg-unison-bg-hover text-unison-text"
-                      : "text-unison-text-muted hover:text-unison-text",
-                  )}
+                  onClick={() => setReportOpen(true)}
+                  className={cn(HEADER_ACTION_CLASS, "text-[11.5px]")}
+                  title="Report wrong lyrics or bad sync"
                 >
-                  Synced
+                  <IconFlag className="size-3.5" />
+                  <span>Report</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setMode("raw")}
-                  className={cn(
-                    "cursor-pointer rounded px-3 py-1 text-xs font-medium transition-colors",
-                    mode === "raw"
-                      ? "bg-unison-bg-hover text-unison-text"
-                      : "text-unison-text-muted hover:text-unison-text",
-                  )}
-                >
-                  Raw
-                </button>
-              </fieldset>
-              {variant ? (
-                <div className="flex items-center gap-1.5 flex-wrap">
+
+                {isOwner && (
                   <button
                     type="button"
-                    onClick={() =>
-                      navigate(`/translate?lyrics=${encodeURIComponent(variant.lyrics)}`, {
-                        state: { lyrics: variant.lyrics },
-                      })
-                    }
-                    className={HEADER_ACTION_CLASS}
-                    title="Translate in Unison Translator"
+                    disabled={deleting}
+                    onClick={handleDelete}
+                    className={cn(
+                      HEADER_ACTION_CLASS,
+                      "hover:text-red-400 hover:border-red-500/40 text-red-400/80 text-[11.5px] cursor-pointer",
+                    )}
+                    title="Delete your submission"
                   >
-                    <IconLanguage className="size-3.5 text-unison-text-secondary" />
-                    <span>Translate</span>
+                    <IconTrash className="size-3.5" />
+                    <span>{deleting ? "Deleting..." : "Delete"}</span>
                   </button>
-                  <DownloadButton
-                    onClick={handleDownload}
-                    className={HEADER_ACTION_CLASS}
-                    iconClassName="size-3.5"
-                    withText
-                  />
-                  <CopyButton text={variant.lyrics} className={HEADER_ACTION_CLASS} iconClassName="size-3.5" withText />
-                  <button
-                    type="button"
-                    onClick={() => setReportOpen(true)}
-                    className={HEADER_ACTION_CLASS}
-                    title="Report wrong lyrics or bad sync"
-                  >
-                    <IconFlag className="size-3.5 text-unison-text-secondary" />
-                    <span>Report</span>
-                  </button>
-                  {isOwner && (
-                    <button
-                      type="button"
-                      disabled={deleting}
-                      onClick={handleDelete}
-                      className={cn(
-                        HEADER_ACTION_CLASS,
-                        "hover:text-red-400 hover:border-red-500/40 text-red-400/80 cursor-pointer",
-                      )}
-                      title="Delete your submission"
-                    >
-                      <IconTrash className="size-3.5" />
-                      <span>{deleting ? "Deleting..." : "Delete"}</span>
-                    </button>
-                  )}
-                </div>
-              ) : null}
-            </div>
-            <div className="p-4">
-              {variantQuery.isLoading || !variant ? (
-                <LyricsContentSkeleton />
-              ) : mode === "synced" ? (
-                <LyricsRenderer
-                  variant={variant}
-                  getCurrentTime={getCurrentTime}
-                  getPlaying={getPlaying}
-                  onLineClick={handleLineClick}
-                />
-              ) : (
-                <RawLyricsView body={variant.lyrics} format={variant.format} />
-              )}
-            </div>
+                )}
+              </div>
+            )}
           </div>
+        </div>
+
+        <div className="space-y-4">
+          <LyricsPanel
+            variant={variantQuery.isLoading ? undefined : variant}
+            getCurrentTime={getCurrentTime}
+            getPlaying={getPlaying}
+            onLineClick={handleLineClick}
+          />
           <VariantList variants={variants} selectedId={selectedId ?? -1} onSelect={handleSelect} />
         </div>
       </div>

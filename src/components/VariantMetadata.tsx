@@ -82,10 +82,35 @@ function Cover({ variant, playerRef, playerActive, onActivatePlayer }: CoverProp
   const poster = (
     <>
       <img
+        key={`${variant.videoId}-${src}`}
         src={src}
         alt=""
+        onLoad={(e) => {
+          // If YouTube returns a 120x90 placeholder for maxresdefault, switch to hqdefault
+          if (
+            e.currentTarget.naturalWidth <= 120 &&
+            e.currentTarget.naturalHeight <= 90 &&
+            e.currentTarget.src.includes("maxresdefault.jpg")
+          ) {
+            e.currentTarget.src = youtubeThumbnailFallbackUrl(variant.videoId)
+          }
+        }}
         onError={(e) => {
-          if (!art) e.currentTarget.src = youtubeThumbnailFallbackUrl(variant.videoId)
+          const current = e.currentTarget.src
+          const maxRes = youtubeThumbnailUrl(variant.videoId)
+          const hq = youtubeThumbnailFallbackUrl(variant.videoId)
+          const mq = `https://i.ytimg.com/vi/${variant.videoId}/mqdefault.jpg`
+
+          if (!current.includes("ytimg.com")) {
+            // Art URL failed, try maxres
+            e.currentTarget.src = maxRes
+          } else if (current.includes("maxresdefault.jpg")) {
+            // maxres failed, try hqdefault
+            e.currentTarget.src = hq
+          } else if (current.includes("hqdefault.jpg")) {
+            // hqdefault failed, try mqdefault
+            e.currentTarget.src = mq
+          }
         }}
         className="block size-full object-cover"
       />
@@ -117,6 +142,9 @@ function Cover({ variant, playerRef, playerActive, onActivatePlayer }: CoverProp
   }
   return <div className="relative aspect-square w-full">{poster}</div>
 }
+
+export const VariantCover = Cover
+export type { CoverProps as VariantCoverProps }
 
 function Pill({ tip, gold, children }: { tip: string; gold?: boolean; children: React.ReactNode }) {
   return (

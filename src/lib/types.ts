@@ -119,6 +119,9 @@ export interface UnrankedUserStats extends UserStats {
 
 export type UserRankResponse = RankedUserStats | UnrankedUserStats
 
+export type SubmissionSyncType = "richsync" | "linesync" | "plain"
+export type SubmissionSort = "newest" | "oldest" | "most_votes" | "least_votes"
+
 export interface UserSubmission {
   id: number
   videoId: string
@@ -127,7 +130,7 @@ export interface UserSubmission {
   album?: string
   duration: number
   format: "ttml" | "lrc" | "plain"
-  syncType: "richsync" | "linesync" | "plain"
+  syncType: SubmissionSyncType
   language?: string
   effectiveScore: number
   voteCount: number
@@ -139,6 +142,25 @@ export interface UserSubmission {
 export interface UserSubmissionsResponse {
   submissions: UserSubmission[]
   nextCursor?: string
+}
+
+export interface FeedEntry {
+  id: number
+  videoId: string
+  song: string
+  artist: string
+  syncType: SyncType
+  createdAt: number
+  marks?: Mark[]
+  submitter?: MarkActor
+}
+
+export type SealedSort = "recently-sealed" | "top-rated"
+export type SealedSyncFilter = "richsync" | "linesync"
+
+export interface Page<T> {
+  items: T[]
+  nextCursor: string | null
 }
 
 export interface LyricsSearchHit {

@@ -54,10 +54,26 @@ export async function fetchUserByHandle(handle: string): Promise<{ keyId: string
   return getJson<{ keyId: string }>(`/users/by-handle/${encodeURIComponent(handle)}`)
 }
 
-export async function fetchUserSubmissions(keyId: string, cursor?: string): Promise<UserSubmissionsResponse> {
+export interface UserSubmissionsQuery {
+  search?: string
+  syncType?: import("./types").SubmissionSyncType
+  sort?: import("./types").SubmissionSort
+  cursor?: string
+}
+
+export async function fetchUserSubmissions(
+  keyId: string,
+  query: UserSubmissionsQuery = {},
+): Promise<UserSubmissionsResponse> {
   if (IS_SPA_EXPANSION_SEED) return (await import("./dev-seed")).seedUserSubmissions(keyId)
-  const params = cursor !== undefined ? `?cursor=${encodeURIComponent(cursor)}` : ""
-  return getJson<UserSubmissionsResponse>(`/users/${encodeURIComponent(keyId)}/submissions${params}`)
+  const params = new URLSearchParams()
+  const search = query.search?.trim()
+  if (search) params.set("q", search)
+  if (query.syncType) params.set("syncType", query.syncType)
+  if (query.sort && query.sort !== "newest") params.set("sort", query.sort)
+  if (query.cursor !== undefined) params.set("cursor", query.cursor)
+  const qs = params.toString()
+  return getJson<UserSubmissionsResponse>(`/users/${encodeURIComponent(keyId)}/submissions${qs ? `?${qs}` : ""}`)
 }
 
 export async function fetchBadgeCatalogue(): Promise<BadgeCatalogue> {
@@ -157,10 +173,14 @@ export async function fetchLyricsVariant(
 export async function fetchArtwork(videoId: string, size?: number): Promise<string | null> {
   if (IS_SPA_EXPANSION_SEED) return null
   const sized = size !== undefined ? `&size=${size}` : ""
-  const { artworkUrl } = await getJson<{ artworkUrl: string | null }>(
-    `/artwork?v=${encodeURIComponent(videoId)}${sized}`,
-  )
-  return artworkUrl
+  try {
+    const { artworkUrl } = await getJson<{ artworkUrl: string | null }>(
+      `/artwork?v=${encodeURIComponent(videoId)}${sized}`,
+    )
+    return artworkUrl ?? null
+  } catch {
+    return null
+  }
 }
 
 async function unwrapMutationError(res: Response): Promise<never> {
@@ -212,21 +232,34 @@ export async function reportVariant(
 
 const QUEUE_PAGE_LIMIT = 50
 
-export async function fetchQueue(
-  opts: { cursor?: string; signal?: AbortSignal } = {},
-): Promise<{ items: QueueEntry[]; nextCursor: string | null }> {
+export async function fetchQueue(opts: { cursor?: string; signal?: AbortSignal } = {}): Promise<import("./types").Page<QueueEntry>> {
   if (IS_SPA_EXPANSION_SEED) return (await import("./dev-seed-spa-expansion")).seedQueue({ cursor: opts.cursor })
   const search = new URLSearchParams()
   search.set("cursor", opts.cursor ?? "")
   search.set("limit", String(QUEUE_PAGE_LIMIT))
-  const path = `/leaderboard/songs?${search.toString()}`
-  const res = await fetch(resolveApiPath(path), opts.signal ? { signal: opts.signal } : undefined)
-  if (!res.ok) {
-    await unwrapMutationError(res)
-  }
-  const body = (await res.json()) as ApiEnvelope<QueueEntry[]> & { nextCursor?: string | null }
+  return getPage<QueueEntry>(resolveApiPath(`/leaderboard/songs?${search.toString()}`), opts.signal)
+}
+
+export async function fetchSealed(opts: {
+  sort: import("./types").SealedSort
+  limit: number
+  syncType?: import("./types").SealedSyncFilter
+  cursor?: string
+  signal?: AbortSignal
+}): Promise<import("./types").Page<import("./types").FeedEntry>> {
+  if (IS_SPA_EXPANSION_SEED) return (await import("./dev-seed-spa-expansion")).seedSealed(opts)
+  const search = new URLSearchParams({ sealed: "1", sort: opts.sort, limit: String(opts.limit) })
+  if (opts.syncType) search.set("syncType", opts.syncType)
+  if (opts.cursor) search.set("cursor", opts.cursor)
+  return getPage<import("./types").FeedEntry>(resolveApiPath(`/feed?${search.toString()}`), opts.signal)
+}
+
+async function getPage<T>(path: string, signal?: AbortSignal): Promise<import("./types").Page<T>> {
+  const res = await fetch(path, signal ? { signal } : undefined)
+  if (!res.ok) await unwrapMutationError(res)
+  const body = (await res.json()) as ApiEnvelope<T[]> & { nextCursor?: string | number | null }
   if (!body.success) throw new Error(body.error)
-  return { items: body.data, nextCursor: body.nextCursor ?? null }
+  return { items: body.data, nextCursor: body.nextCursor == null ? null : String(body.nextCursor) }
 }
 
 const DUMP_MANIFEST_URL = "https://unison-dumps.boidu.dev/dumps/manifest.json"
