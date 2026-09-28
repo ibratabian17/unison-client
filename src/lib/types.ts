@@ -341,6 +341,7 @@ export interface LyricRevision {
   format: LyricsFormat
   language?: string
   isrc?: string
+  album?: string | null
   status: "pending" | "approved" | "rejected"
   createdAt: number
   author?: {
@@ -352,15 +353,14 @@ export interface LyricRevision {
   driftScore?: number
 }
 
-export interface RevisionDiff {
-  oldLyrics?: string
-  newLyrics?: string
-  changes: Array<{
-    type: "add" | "remove" | "keep"
-    content: string
-    lineNumber?: number
-  }>
-}
+export type {
+  DiffRow,
+  DiffPart,
+  HeadTextRef,
+  RevisionDiff,
+  RevisionSummary,
+  RevisionStatus,
+} from "./revision-types"
 
 export interface LinkedVideo {
   videoId: string

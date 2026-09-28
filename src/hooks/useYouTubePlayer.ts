@@ -17,7 +17,7 @@ interface YTPlayerCtorOptions {
   width?: string | number
   height?: string | number
   playerVars?: Record<string, string | number>
-  events?: { onReady?: () => void; onStateChange?: () => void }
+  events?: { onReady?: () => void }
 }
 
 interface YTNamespace {
@@ -94,7 +94,7 @@ export interface UseYouTubePlayerResult {
 
 export interface UseYouTubePlayerOptions {
   playerVars?: Record<string, string | number>
-  onDurationChange?: (duration: number) => void
+  onDurationChange?: (durationSeconds: number) => void
 }
 
 export function useYouTubePlayer(videoId: string | null, options?: UseYouTubePlayerOptions): UseYouTubePlayerResult {
@@ -135,12 +135,10 @@ export function useYouTubePlayer(videoId: string | null, options?: UseYouTubePla
           onReady: () => {
             if (cancelled) return
             readyRef.current = true
-            try {
-              const dur = player.getDuration?.() ?? 0
-              if (dur > 0 && onDurationChangeRef.current) {
-                onDurationChangeRef.current(dur)
-              }
-            } catch {}
+            if (onDurationChangeRef.current) {
+              const dur = player.getDuration()
+              if (dur && dur > 0) onDurationChangeRef.current(dur)
+            }
             if (pendingSeekRef.current !== null) {
               player.seekTo(pendingSeekRef.current, true)
               pendingSeekRef.current = null
@@ -149,14 +147,6 @@ export function useYouTubePlayer(videoId: string | null, options?: UseYouTubePla
               player.playVideo()
               pendingPlayRef.current = false
             }
-          },
-          onStateChange: () => {
-            try {
-              const dur = player.getDuration?.() ?? 0
-              if (dur > 0 && onDurationChangeRef.current) {
-                onDurationChangeRef.current(dur)
-              }
-            } catch {}
           },
         },
       })
@@ -211,11 +201,7 @@ export function useYouTubePlayer(videoId: string | null, options?: UseYouTubePla
   const getDuration = useCallback(() => {
     const player = playerRef.current
     if (!player || !readyRef.current) return 0
-    try {
-      return player.getDuration()
-    } catch {
-      return 0
-    }
+    return player.getDuration() || 0
   }, [])
 
   const getPlaying = useCallback(() => {

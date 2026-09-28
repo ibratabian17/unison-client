@@ -16,6 +16,7 @@ import type {
   LyricsSearchHit,
   QueueEntry,
   RevisionDiff,
+  RevisionSummary,
   SongsLeaderboardResponse,
   UserGamification,
   UserRankResponse,
@@ -108,7 +109,7 @@ function buildSearchPath(params: SearchLyricsParams): string {
   return qs.length > 0 ? `/lyrics/search?${qs}` : "/lyrics/search"
 }
 
-async function getJsonWithSignal<T>(path: string, signal?: AbortSignal): Promise<T> {
+export async function getJsonWithSignal<T>(path: string, signal?: AbortSignal): Promise<T> {
   const session = loadStoredSession()
   const init: RequestInit = {}
   if (signal) init.signal = signal
@@ -319,19 +320,81 @@ export async function deleteLyrics(id: number): Promise<void> {
   }
 }
 
+export interface TranslateResult {
+  lines: Array<{
+    translation: string | null
+    romanization: string | null
+    needsTranslation: boolean
+  }>
+  detectedLang: string
+  provider: string
+  cached: boolean
+  translated: string[]
+  romanized?: string[]
+}
+
 export async function translateLyrics(
   lines: string[],
   targetLang: string,
   sourceLang?: string,
-): Promise<{ translated: string[]; romanized?: string[] }> {
+  videoId?: string,
+): Promise<TranslateResult> {
+  const payload: Record<string, unknown> = {
+    lines,
+    to: targetLang,
+  }
+  if (sourceLang && sourceLang !== "auto") payload.from = sourceLang
+  if (videoId) payload.videoId = videoId
+
   const res = await fetch(resolveApiPath("/translate"), {
     method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ lines, targetLang, sourceLang }),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
   })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+
+  if (!res.ok) {
+    const errJson = await res.json().catch(() => null)
+    throw new Error(errJson?.error ?? `HTTP ${res.status}`)
+  }
+
   const json = await res.json()
-  return json.data ?? { translated: lines }
+  const resLines = (json.lines ?? []) as Array<{
+    translation: string | null
+    romanization: string | null
+    needsTranslation: boolean
+  }>
+
+  const translated = resLines.map((l, i) => l.translation || lines[i] || "")
+  const romanized = resLines.some((l) => Boolean(l.romanization))
+    ? resLines.map((l) => l.romanization || "")
+    : undefined
+
+  return {
+    lines: resLines,
+    detectedLang: json.detectedLang ?? "",
+    provider: json.provider ?? "google-lyrics-translate",
+    cached: Boolean(json.cached),
+    translated,
+    romanized,
+  }
+}
+
+export function isNotFound(err: unknown): boolean {
+  if (err && typeof err === "object" && "status" in err && (err as { status: number }).status === 404) return true
+  if (err instanceof Error) return /404|not found/i.test(err.message)
+  return false
+}
+
+export async function fetchRevisions(lyricsId: number, signal?: AbortSignal): Promise<RevisionSummary[]> {
+  try {
+    const { revisions } = await getJsonWithSignal<{ revisions: RevisionSummary[] }>(
+      `/lyrics/${lyricsId}/revisions`,
+      signal,
+    )
+    return revisions ?? []
+  } catch {
+    return []
+  }
 }
 
 export async function fetchLyricRevisions(lyricId: number): Promise<{ revisions: LyricRevision[] }> {
@@ -348,11 +411,14 @@ export async function fetchLyricRevisions(lyricId: number): Promise<{ revisions:
 export async function fetchRevisionDiff(
   lyricId: number,
   revId: number,
-  against?: number,
+  againstOrSignal?: number | AbortSignal,
+  signal?: AbortSignal,
 ): Promise<RevisionDiff | null> {
   try {
+    const against = typeof againstOrSignal === "number" ? againstOrSignal : undefined
+    const sig = againstOrSignal instanceof AbortSignal ? againstOrSignal : signal
     const query = against !== undefined ? `?against=${against}` : ""
-    const res = await fetch(resolveApiPath(`/lyrics/${lyricId}/revisions/${revId}/diff${query}`))
+    const res = await fetch(resolveApiPath(`/lyrics/${lyricId}/revisions/${revId}/diff${query}`), { signal: sig })
     if (!res.ok) return null
     const json = await res.json()
     return json.data ?? null
@@ -383,6 +449,7 @@ export async function saveLyricRevision(
   }
   if (input.language) payload.language = input.language
   if (input.isrc) payload.isrc = input.isrc
+  if (input.album !== undefined) payload.album = input.album?.trim() || null
 
   const headers: Record<string, string> = { "Content-Type": "application/json" }
   let bodyStr: string

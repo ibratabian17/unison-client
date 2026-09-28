@@ -10,6 +10,7 @@ import type { LyricRevision, RevisionDiff, VariantFull } from "@/lib/types"
 import { fetchLyricRevisions, fetchRevisionDiff, revertLyricRevision } from "@/lib/api"
 import { formatRelativeTime } from "@/lib/format"
 import { UserAvatar } from "@/components/UserAvatar"
+import { DiffView } from "@/components/council/DiffView"
 import { cn } from "@/lib/cn"
 
 interface RevisionHistoryModalProps {
@@ -288,6 +289,12 @@ export function RevisionHistoryModal({
                         <span>{(selectedRev.language || variant.language || "").toUpperCase()}</span>
                       </>
                     )}
+                    {(selectedRev.album || variant.album) && (
+                      <>
+                        <span>·</span>
+                        <span className="truncate max-w-[140px]">{selectedRev.album || variant.album}</span>
+                      </>
+                    )}
                     {(selectedRev.isrc || variant.isrc) && (
                       <>
                         <span>·</span>
@@ -315,30 +322,8 @@ export function RevisionHistoryModal({
                     <div className="flex h-48 items-center justify-center text-unison-text-muted">
                       <IconLoader2 className="size-4 animate-spin" />
                     </div>
-                  ) : diff?.changes && diff.changes.length > 0 ? (
-                    <div className="rounded-[8px] border border-unison-border/60 overflow-hidden bg-black/40 divide-y divide-white/[0.03]">
-                      {diff.changes.map((change, idx) => (
-                        <div
-                          key={idx}
-                          className={cn(
-                            "flex items-start px-2.5 py-0.5",
-                            change.type === "add" && "bg-emerald-500/[0.12] text-emerald-300",
-                            change.type === "remove" && "bg-red-500/[0.12] text-red-300 line-through opacity-75",
-                            change.type === "keep" && "text-unison-text-secondary",
-                          )}
-                        >
-                          <span className="w-8 shrink-0 select-none text-[10px] text-unison-text-muted opacity-60">
-                            {idx + 1}
-                          </span>
-                          <span className="w-4 shrink-0 select-none font-bold">
-                            {change.type === "add" ? "+" : change.type === "remove" ? "-" : " "}
-                          </span>
-                          <span className="flex-1 whitespace-pre-wrap break-all">
-                            {change.content}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
+                  ) : diff?.rows && diff.rows.length > 0 ? (
+                    <DiffView rows={diff.rows} mode="unified" />
                   ) : (
                     <div className="rounded-[8px] border border-unison-border/60 bg-black/30 p-3.5">
                       <pre className="whitespace-pre-wrap text-unison-text-secondary text-[11.5px] leading-relaxed font-mono">

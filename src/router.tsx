@@ -45,6 +45,7 @@ if (import.meta.env.DEV) {
 import { FeedPage } from "./pages/FeedPage"
 import { SubmitPage } from "./pages/SubmitPage"
 import { TranslatePage } from "./pages/TranslatePage"
+import { councilRoute } from "./pages/council/routes"
 
 const isGitHubPages = typeof window !== "undefined" && window.location.hostname.includes("github.io")
 const createRouter = isGitHubPages ? createHashRouter : createBrowserRouter
@@ -71,6 +72,7 @@ const router = createRouter([
       { path: "docs", element: <DocsPage /> },
       { path: "link", element: <LinkPage /> },
       { path: "migrate", element: <MigratePage /> },
+      councilRoute,
       {
         path: "exam",
         element: (
