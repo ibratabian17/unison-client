@@ -5,6 +5,7 @@ import { fetchFeed, fetchMySubmissions, voteVariant, unvoteVariant, fetchSongLea
 import { useAsyncData } from "@/hooks/useAsyncData"
 import { EmptyState } from "@/components/EmptyState"
 import { LeaderboardSection } from "@/components/LeaderboardSection"
+import { SealedShelf } from "@/components/SealedShelf"
 import { SongRow, SongRowSkeletonList } from "@/components/SongRow"
 import {
   IconThumbUp,
@@ -152,6 +153,9 @@ export function FeedPage() {
 
   return (
     <div className="space-y-6">
+      {/* Sealed by the Council shelf */}
+      <SealedShelf />
+
       {/* Top Header & Tab Controls */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
