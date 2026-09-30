@@ -9,6 +9,10 @@ updates:
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
+    groups:
+      npm-dependencies:
+        patterns:
+          - "*"
 
   # Enable version updates for GitHub Actions workflows
   - package-ecosystem: "github-actions"
@@ -19,3 +23,7 @@ updates:
     commit-message:
       prefix: "chore(actions)"
       include: "scope"
+    groups:
+      github-actions:
+        patterns:
+          - "*"

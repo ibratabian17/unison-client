@@ -6,7 +6,7 @@ import type { Plugin } from "vite";
 import { defineConfig } from "vite";
 
 function devBadgeArt(): Plugin {
-  const dir = resolve(__dirname, "./public/badge-art");
+  const dir = resolve(import.meta.dirname, "./public/badge-art");
   return {
     name: "unison-dev-badge-art",
     apply: "serve",
@@ -27,8 +27,8 @@ function spa404(): Plugin {
   return {
     name: "unison-spa-404",
     closeBundle() {
-      const indexFile = resolve(__dirname, "./dist/index.html");
-      const notFoundFile = resolve(__dirname, "./dist/404.html");
+      const indexFile = resolve(import.meta.dirname, "./dist/index.html");
+      const notFoundFile = resolve(import.meta.dirname, "./dist/404.html");
       if (existsSync(indexFile)) {
         copyFileSync(indexFile, notFoundFile);
       }
@@ -41,7 +41,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss(), devBadgeArt(), spa404()],
   resolve: {
     alias: {
-      "@": resolve(__dirname, "./src"),
+      "@": resolve(import.meta.dirname, "./src"),
     },
   },
   optimizeDeps: {

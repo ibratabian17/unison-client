@@ -20,7 +20,7 @@ A modern, standalone web client for the [Better Lyrics](https://betterlyrics.org
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) (v18 or higher recommended)
+- [Node.js](https://nodejs.org/) (v20 or higher recommended)
 - `npm` or `pnpm`
 
 ### Installation
