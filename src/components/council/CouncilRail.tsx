@@ -1,16 +1,18 @@
 import { Kbd } from "@/components/Kbd"
+import { Tooltip } from "@/components/Tooltip"
 import {
   useCouncilApplicants,
   useCouncilEdits,
   useCouncilMembers,
+  useCouncilMetadata,
   useCouncilOverview,
   useCouncilQueue,
 } from "@/hooks/useCouncilData"
 import { cn } from "@/lib/cn"
+import { quotaExplanation } from "@/lib/council-quota"
 import { groupByBookmark, openItems } from "@/lib/council-triage"
 import type { BoostQuota, EditItem, QueueItem } from "@/lib/council-types"
-import { formatShortDate, titleCase } from "@/lib/format"
-import type { TierName } from "@/lib/types"
+import { formatShortDate } from "@/lib/format"
 import {
   type Icon,
   IconBookmark,
@@ -21,11 +23,12 @@ import {
   IconPencil,
   IconRosetteDiscountCheck,
   IconSchool,
+  IconTags,
   IconUsers,
 } from "@tabler/icons-react"
 import { NavLink } from "react-router-dom"
 
-type SectionId = "overview" | "queue" | "edits" | "bookmarks" | "applicants" | "activity" | "members"
+type SectionId = "overview" | "queue" | "edits" | "metadata" | "bookmarks" | "applicants" | "activity" | "members"
 
 interface Section {
   id: SectionId
@@ -38,6 +41,7 @@ export const COUNCIL_SECTIONS: Section[] = [
   { id: "overview", to: "/council", label: "Overview", icon: IconLayoutDashboard },
   { id: "queue", to: "/council/queue", label: "Seal queue", icon: IconRosetteDiscountCheck },
   { id: "edits", to: "/council/edits", label: "Edits", icon: IconPencil },
+  { id: "metadata", to: "/council/metadata", label: "Details", icon: IconTags },
   { id: "bookmarks", to: "/council/bookmarks", label: "Bookmarks", icon: IconBookmark },
   { id: "applicants", to: "/council/applicants", label: "Applicants", icon: IconSchool },
   { id: "activity", to: "/council/activity", label: "Activity", icon: IconHistory },
@@ -53,6 +57,7 @@ function useSectionCounts(meKeyId: string): Partial<Record<SectionId, SectionCou
   const now = Math.floor(Date.now() / 1000)
   const queue = useCouncilQueue().data
   const edits = useCouncilEdits().data
+  const metadata = useCouncilMetadata().data
   const overview = useCouncilOverview().data
   const applicants = useCouncilApplicants().data
   const members = useCouncilMembers().data
@@ -64,6 +69,7 @@ function useSectionCounts(meKeyId: string): Partial<Record<SectionId, SectionCou
       hot: edits.items.some((e) => e.pendingReason === "sealed"),
     }
   }
+  if (metadata) counts.metadata = { value: String(metadata.items.length) }
   if (queue && edits && overview) {
     const mine = groupByBookmark<QueueItem | EditItem>([...queue, ...edits.items], meKeyId, now).mine.length
     counts.bookmarks = { value: `${mine}/${overview.me.bookmarkCap}` }
@@ -169,45 +175,46 @@ function RailFootButton({
 
 function QuotaCard() {
   const overview = useCouncilOverview().data
-  const me = useCouncilMembers().data?.find((m) => m.isYou)
   if (!overview) return null
-  return <QuotaRingCard quota={overview.me.quota} tier={me?.tier ?? null} />
+  return <QuotaRingCard quota={overview.me.quota} />
 }
 
 const RING_RADIUS = 15
 const RING_LENGTH = 2 * Math.PI * RING_RADIUS
 
-function QuotaRingCard({ quota, tier }: { quota: BoostQuota; tier: TierName | null }) {
+function QuotaRingCard({ quota }: { quota: BoostQuota }) {
   const spent = quota.quota === 0 ? 1 : quota.used / quota.quota
   return (
-    <div
-      data-testid="quota-card"
-      className="hidden items-center gap-3 rounded-xl bg-white/[0.02] p-3.5 shadow-inset-rim council:flex"
-    >
-      <svg width="40" height="40" viewBox="0 0 40 40" className="-rotate-90" aria-hidden="true">
-        <circle cx="20" cy="20" r={RING_RADIUS} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="3.5" />
-        <circle
-          cx="20"
-          cy="20"
-          r={RING_RADIUS}
-          fill="none"
-          stroke="var(--color-unison-medal-gold)"
-          strokeWidth="3.5"
-          strokeLinecap="round"
-          strokeDasharray={RING_LENGTH}
-          strokeDashoffset={RING_LENGTH * Math.min(1, spent)}
-          className="transition-[stroke-dashoffset] duration-600 ease-[cubic-bezier(0.2,0,0,1)]"
-        />
-      </svg>
-      <div>
-        <b className="block text-[13px] font-semibold">
-          <span className="font-mono tabular-nums">{quota.remaining}</span> of{" "}
-          <span className="font-mono tabular-nums">{quota.quota}</span> seals left
-        </b>
-        <small className="mt-0.5 block text-[11px] text-unison-text-muted">
-          {tier ? titleCase(tier) : "Monthly"} quota · resets {formatShortDate(quota.resetsAt)}
-        </small>
+    <Tooltip label={quotaExplanation(quota)}>
+      <div
+        data-testid="quota-card"
+        className="hidden items-center gap-3 rounded-xl bg-white/[0.02] p-3.5 shadow-inset-rim council:flex"
+      >
+        <svg width="40" height="40" viewBox="0 0 40 40" className="-rotate-90" aria-hidden="true">
+          <circle cx="20" cy="20" r={RING_RADIUS} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="3.5" />
+          <circle
+            cx="20"
+            cy="20"
+            r={RING_RADIUS}
+            fill="none"
+            stroke="var(--color-unison-medal-gold)"
+            strokeWidth="3.5"
+            strokeLinecap="round"
+            strokeDasharray={RING_LENGTH}
+            strokeDashoffset={RING_LENGTH * Math.min(1, spent)}
+            className="transition-[stroke-dashoffset] duration-600 ease-[cubic-bezier(0.2,0,0,1)]"
+          />
+        </svg>
+        <div>
+          <b className="block text-[13px] font-semibold">
+            <span className="font-mono tabular-nums">{quota.remaining}</span> of{" "}
+            <span className="font-mono tabular-nums">{quota.quota}</span> seals left
+          </b>
+          <small className="mt-0.5 block text-[11px] text-unison-text-muted">
+            Monthly quota · resets {formatShortDate(quota.resetsAt)}
+          </small>
+        </div>
       </div>
-    </div>
+    </Tooltip>
   )
 }

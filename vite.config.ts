@@ -36,8 +36,8 @@ function spa404(): Plugin {
   };
 }
 
-export default defineConfig({
-  base: "./",
+export default defineConfig(({ command }) => ({
+  base: command === "build" ? "./" : "/",
   plugins: [react(), tailwindcss(), devBadgeArt(), spa404()],
   resolve: {
     alias: {
@@ -106,4 +106,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

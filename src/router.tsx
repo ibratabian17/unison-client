@@ -1,5 +1,5 @@
 import { type ComponentType, Suspense, lazy } from "react"
-import { type RouteObject, RouterProvider, createBrowserRouter, createHashRouter } from "react-router-dom"
+import { type RouteObject, RouterProvider, createBrowserRouter, createHashRouter, Navigate } from "react-router-dom"
 import { AppLayout } from "./components/AppLayout"
 import { AboutPage } from "./pages/AboutPage"
 import { CuratorsPage } from "./pages/CuratorsPage"
@@ -60,6 +60,7 @@ const router = createRouter([
       { path: "feed", element: <FeedPage /> },
       { path: "songs", element: <FeedPage /> },
       { path: "sealed", element: <SealedPage /> },
+      { path: "seal", element: <Navigate to="/sealed" replace /> },
       { path: "submit", element: <SubmitPage /> },
       { path: "translate", element: <TranslatePage /> },
       { path: "queue", element: <QueuePage /> },
@@ -84,6 +85,7 @@ const router = createRouter([
         ),
       },
       ...devRoutes,
+      { path: "*", element: <Navigate to="/" replace /> },
     ],
   },
 ])

@@ -9,6 +9,7 @@ import { ReportModal } from "@/components/ReportModal"
 import { Bone } from "@/components/skeleton"
 import { VariantList, VariantListSkeleton } from "@/components/VariantList"
 import { VariantMetadata, VariantMetadataSkeleton } from "@/components/VariantMetadata"
+import { EditMetadataButton } from "@/components/council/EditMetadataButton"
 import { SealLyricButton } from "@/components/council/SealLyricButton"
 import { VoteControls } from "@/components/VoteControls"
 import { YouTubeMusicIcon } from "@/components/icons/YouTubeMusicIcon"
@@ -156,6 +157,11 @@ export function LyricsPage() {
         </button>
         {variant && selectedId !== undefined ? (
           <div className="flex items-center gap-3">
+            <EditMetadataButton
+              videoId={safeVideoId}
+              lyricsId={variant.id}
+              current={{ song: variant.song, artist: variant.artist, album: variant.album ?? null }}
+            />
             <SealLyricButton videoId={safeVideoId} lyricsId={variant.id} />
             <VoteControls
               variantId={variant.id}
