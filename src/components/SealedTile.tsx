@@ -4,6 +4,7 @@ import { Bone } from "@/components/skeleton"
 import { SongThumbnail } from "@/components/SongThumbnail"
 import { tagClass } from "@/components/ui"
 import { UserAvatar } from "@/components/UserAvatar"
+import { resolveAssetUrl } from "@/lib/badge-view"
 import { cn } from "@/lib/cn"
 import { formatElapsed } from "@/lib/format"
 import { EASE_OUT, sealStamp, staggerDelay, thudFrom, thudTransition } from "@/lib/motion-variants"
@@ -79,9 +80,14 @@ export function SealedTile({
           className={cn("aspect-square w-full", isCard ? "rounded-none" : "rounded-[10px]")}
         />
         {seal && landAt !== null ? (
-          <motion.img src={seal.icon} alt="" className={sealClass} {...sealStamp(landAt + SEAL_AFTER_LANDING)} />
+          <motion.img
+            src={resolveAssetUrl(seal.icon)}
+            alt=""
+            className={sealClass}
+            {...sealStamp(landAt + SEAL_AFTER_LANDING)}
+          />
         ) : seal ? (
-          <img src={seal.icon} alt="" className={cn(sealClass, "-rotate-6")} />
+          <img src={resolveAssetUrl(seal.icon)} alt="" className={cn(sealClass, "-rotate-6")} />
         ) : null}
       </div>
       <div className={cn("flex min-w-0 flex-col", isCard ? "gap-1.5 px-3 pt-2.5 pb-3" : "gap-1")}>

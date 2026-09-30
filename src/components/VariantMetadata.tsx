@@ -7,7 +7,7 @@ import { TierChip } from "@/components/TierChip"
 import { Tooltip } from "@/components/Tooltip"
 import { useArtwork, youtubeThumbnailFallbackUrl, youtubeThumbnailUrl } from "@/lib/artwork"
 import { UserAvatar } from "@/components/UserAvatar"
-import { resolveBadgeImage } from "@/lib/badge-view"
+import { resolveAssetUrl, resolveBadgeImage } from "@/lib/badge-view"
 import { cn } from "@/lib/cn"
 import { LAYOUT_TRANSITION } from "@/lib/motion-variants"
 import type { Mark, VariantFull } from "@/lib/types"
@@ -227,7 +227,11 @@ function MarkCallout({ mark }: { mark: Mark }) {
   return (
     <div className="flex flex-col gap-1">
       <span className="inline-flex w-fit max-w-full items-center gap-2 rounded-lg bg-white/10 pr-2.5">
-        <img src={mark.icon} alt="" className="size-6 shrink-0 object-contain [transform:scale(1.05)_rotate(-6deg)]" />
+        <img
+          src={resolveAssetUrl(mark.icon)}
+          alt=""
+          className="size-6 shrink-0 object-contain [transform:scale(1.05)_rotate(-6deg)]"
+        />
         <span className="text-xs font-medium leading-tight text-white">{mark.label}</span>
       </span>
       {mark.by ? (

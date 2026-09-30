@@ -7,6 +7,7 @@ import { SYNC_LABEL, SealedTile, SealedTileSkeleton } from "@/components/SealedT
 import { Segmented } from "@/components/council/Segmented"
 import { Bone, skeletonKeys } from "@/components/skeleton"
 import { buttonClass } from "@/components/ui"
+import { resolveAssetUrl } from "@/lib/badge-view"
 import { fetchSealed } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { EASE_OUT, thudFrom, thudTransition } from "@/lib/motion-variants"
@@ -87,7 +88,7 @@ export function SealedPage() {
           style={{ background: "linear-gradient(135deg, rgba(217,217,217,0.1), rgba(255,255,255,0.02) 55%)" }}
         >
           <motion.img
-            src="/badges/committee/image.svg"
+            src={resolveAssetUrl("/badges/committee/image.svg")}
             alt=""
             className="size-16 shrink-0"
             style={{ rotate: -6 }}
