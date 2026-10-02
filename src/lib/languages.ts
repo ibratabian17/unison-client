@@ -172,47 +172,7 @@ export const POPULAR_TRANSLATE_LANGUAGES = POPULAR_TRANSLATE_CODES.map(
 ).filter(Boolean)
 
 // Core submission validation supported language codes
-export const LANGUAGE_CODES = [
-  "en",
-  "es",
-  "fr",
-  "de",
-  "it",
-  "pt",
-  "nl",
-  "sv",
-  "da",
-  "no",
-  "fi",
-  "pl",
-  "cs",
-  "sk",
-  "hu",
-  "ro",
-  "el",
-  "tr",
-  "ru",
-  "uk",
-  "ja",
-  "ko",
-  "zh",
-  "zh-Hant",
-  "hi",
-  "bn",
-  "pa",
-  "ta",
-  "te",
-  "ur",
-  "id",
-  "ms",
-  "vi",
-  "th",
-  "fil",
-  "ar",
-  "he",
-  "fa",
-  "sw",
-] as const
+export const LANGUAGE_CODES = TRANSLATE_LANGUAGES.map((l) => l.code)
 
 export interface LanguageOption {
   code: string
@@ -231,10 +191,21 @@ export function getLanguageOptions(): LanguageOption[] {
     displayNames = null
   }
 
-  cachedOptions = LANGUAGE_CODES.map((code) => ({
-    code,
-    name: displayNames ? `${displayNames.of(code) || code} (${code})` : code,
-  }))
+  cachedOptions = TRANSLATE_LANGUAGES.map((item) => {
+    let name = item.name
+    if (displayNames) {
+      try {
+        const resolved = displayNames.of(item.code)
+        if (resolved) name = resolved
+      } catch {
+        // fallback to item.name
+      }
+    }
+    return {
+      code: item.code,
+      name: `${name} (${item.code})`,
+    }
+  })
 
   return cachedOptions
 }
