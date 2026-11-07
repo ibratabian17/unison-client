@@ -55,12 +55,35 @@
 .pf-group {
   animation: pf-rise-in 0.5s cubic-bezier(0.2, 0, 0, 1) both;
 }
-.cs-reveal {
-  animation: pf-rise-in 0.42s cubic-bezier(0.2, 0, 0, 1) both;
-}
 .pf-bar-fill {
   transform-origin: left;
   animation: pf-bar-fill 1s cubic-bezier(0.2, 0, 0, 1) 0.3s both;
+}
+
+.pf-banner-soft,
+.pf-banner-sharp {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.pf-banner-soft {
+  inset: -40px -40px 0;
+  width: calc(100% + 80px);
+  height: calc(100% + 40px);
+  filter: blur(40px) saturate(1.4);
+  mask-image: linear-gradient(180deg, #000 40%, var(--pf-eased));
+}
+.pf-banner-sharp {
+  mask-image: linear-gradient(180deg, #000 0%, #000 46%, var(--pf-eased) 90%, transparent);
+}
+:root {
+  --pf-eased: rgba(0, 0, 0, 0.96), rgba(0, 0, 0, 0.86), rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.5),
+    rgba(0, 0, 0, 0.3), rgba(0, 0, 0, 0.14), rgba(0, 0, 0, 0.04), transparent;
+}
+.cs-reveal {
+  animation: pf-rise-in 0.42s cubic-bezier(0.2, 0, 0, 1) both;
 }
 
 @keyframes bm-fade {
@@ -68,43 +91,43 @@
     opacity: 0;
   }
 }
-@keyframes bm-pop {
-  from {
-    opacity: 0;
-    transform: translateY(10px) scale(0.96);
-  }
-}
-@keyframes bm-fadeout {
+@keyframes bm-fade-out {
   to {
     opacity: 0;
   }
 }
-@keyframes bm-popout {
-  to {
-    opacity: 0;
-    transform: translateY(6px) scale(0.98);
-  }
-}
-@keyframes bm-glow-in {
+@keyframes bm-card {
   from {
     opacity: 0;
+    transform: translateY(14px) scale(0.94);
+  }
+}
+@keyframes bm-card-out {
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+}
+@keyframes bm-glow {
+  from {
+    transform: translate(-50%, -50%) scale(2.8, 1.1);
   }
 }
 
 .bm-overlay {
-  animation: bm-fade 0.18s ease-out;
+  animation: bm-fade 0.2s cubic-bezier(0.2, 0, 0, 1) both;
 }
 .bm-overlay.bm-closing {
-  animation: bm-fadeout 0.16s ease-out forwards;
+  animation: bm-fade-out 0.18s cubic-bezier(0.4, 0, 1, 1) both;
 }
 .bm-card {
-  animation: bm-pop 0.28s cubic-bezier(0.2, 0.7, 0.2, 1);
+  animation: bm-card 0.28s cubic-bezier(0.2, 0, 0, 1) both;
 }
 .bm-card.bm-closing {
-  animation: bm-popout 0.16s ease-out forwards;
+  animation: bm-card-out 0.18s cubic-bezier(0.4, 0, 1, 1) both;
 }
 .bm-glow {
-  animation: bm-glow-in 0.6s ease-out 0.1s both;
+  animation: bm-glow 0.6s cubic-bezier(0.2, 0, 0, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -124,6 +147,6 @@
   .bm-card,
   .bm-card.bm-closing,
   .bm-glow {
-    animation: none;
+    animation: none !important;
   }
 }

@@ -374,6 +374,20 @@ export function VariantMetadata({
               </div>
             </Tooltip>
           </div>
+          {variant.fulfilled ? (
+            <>
+              <div className="h-px bg-unison-border" />
+              <div className="flex items-center justify-between gap-2.5 text-[11.5px] text-unison-text-muted">
+                <span>Most Wanted</span>
+                <Link
+                  to="/queue"
+                  className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-300 hover:bg-emerald-500/25"
+                >
+                  Fulfilled ({variant.fulfilled.requestCount})
+                </Link>
+              </div>
+            </>
+          ) : null}
           {variant.isrc ? (
             <>
               <div className="h-px bg-unison-border" />

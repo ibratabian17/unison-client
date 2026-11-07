@@ -1,3 +1,4 @@
+import type { ReportReason } from "./report-reasons"
 import type { Confidence, LeaderboardBadge, LyricsFormat, SyncType, TierName } from "./types"
 
 export interface Person {
@@ -113,6 +114,41 @@ export interface MetadataPayload {
   needed: number
 }
 
+export interface FlagReport {
+  id: number
+  reason: ReportReason
+  details: string | null
+  reporter: CouncilPerson | null
+  createdAt: number
+}
+
+export interface CouncilFlag {
+  id: number
+  lyricsId: number
+  videoId: string
+  song: string
+  artist: string
+  submitter: CouncilPerson | null
+  openedAt: number
+  reports: FlagReport[]
+  removers: CouncilPerson[]
+  keepers: CouncilPerson[]
+  conflict: "submitter" | "reporter" | null
+  bookmark: null
+}
+
+export interface FlagsPayload {
+  items: CouncilFlag[]
+  needed: number
+}
+
+export interface FlagVoteResult {
+  status: "open" | "removed" | "kept"
+  removals: number
+  keeps: number
+  needed: number
+}
+
 export interface EditsPayload {
   items: EditItem[]
   thresholds: EditThresholds
@@ -134,8 +170,12 @@ export type CouncilEventKind =
   | "metadata_propose"
   | "metadata_approve"
   | "metadata_reject"
+  | "flag_remove"
+  | "flag_keep"
+  | "vote_strike"
+  | "vote_strike_undo"
 
-export type CouncilSource = "web" | "discord" | "admin"
+export type CouncilSource = "web" | "discord" | "admin" | "system"
 
 export interface CouncilEvent {
   id: number
@@ -151,7 +191,7 @@ export interface CouncilEvent {
   lyric: { id: number; videoId: string; song: string; artist: string } | null
 }
 
-export type EventGroup = "seals" | "rejections" | "edits" | "membership"
+export type EventGroup = "seals" | "rejections" | "edits" | "membership" | "flags" | "strikes"
 
 export interface EventsPage {
   events: CouncilEvent[]
@@ -172,6 +212,7 @@ export interface DayDecisions {
   sealed: number
   rejected: number
   editsReviewed: number
+  flags: number
 }
 
 export interface CouncilOverview {
@@ -199,7 +240,7 @@ export interface RosterMember extends CouncilPerson {
   editsThisMonth: number
   lastActiveAt: number | null
   weekly: number[]
-  lastWeek: { sealed: number; rejected: number; edits: number }
+  lastWeek: { sealed: number; rejected: number; edits: number; flags: number }
 }
 
 export type OpinionStance = "support" | "object"

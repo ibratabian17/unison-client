@@ -1,3 +1,4 @@
+import { eventSubject } from "@/components/council/EventSentence"
 import { fetchUserByHandle, isNotFound } from "@/lib/api"
 import { clearStoredSession } from "@/lib/auth"
 import { AUTHED_FETCH_ERRORS, AuthedFetchError } from "@/lib/authedFetch"
@@ -13,7 +14,9 @@ import {
   sealLyric,
   setApplicantOpinion,
   undoRejectLyric,
+  undoVoteStrike,
   unsealLyric,
+  voteFlag,
   voteMetadata,
 } from "@/lib/council-api"
 import type { MemberInput } from "@/lib/council-roster"
@@ -22,9 +25,11 @@ import type {
   BookmarkItemType,
   BookmarkView,
   CouncilEvent,
+  CouncilFlag,
   CouncilPerson,
   EditItem,
   EditsPayload,
+  FlagVoteResult,
   MetadataItem,
   OpinionStance,
   QueueItem,
@@ -148,12 +153,20 @@ export function useUndoDecision() {
   const client = useQueryClient()
   return useMutation({
     mutationFn: (event: CouncilEvent) => {
+      if (event.kind === "vote_strike") {
+        if (event.refId === null) throw new Error(AUTHED_FETCH_ERRORS.REQUEST_FAILED)
+        return undoVoteStrike(event.refId)
+      }
       if (!event.lyric) throw new Error(AUTHED_FETCH_ERRORS.REQUEST_FAILED)
       if (event.kind === "seal") return unsealLyric(event.lyric.id)
       if (event.refId === null) throw new Error(AUTHED_FETCH_ERRORS.REQUEST_FAILED)
       return undoRejectLyric(event.lyric.id, event.refId)
     },
     onSuccess: (_, event) => {
+      if (event.kind === "vote_strike") {
+        pushToast({ kind: "info", group: DECISION_TOAST, message: `Restored the votes for ${eventSubject(event)}` })
+        return
+      }
       const verb = event.kind === "seal" ? DONE.seal.undo : DONE.reject.undo
       pushToast({ kind: "info", group: DECISION_TOAST, message: `${verb} “${event.lyric?.song}”` })
     },
@@ -291,6 +304,29 @@ export function useMetadataVote() {
       refreshCouncil(client)
       client.invalidateQueries({ queryKey: lyricsKeys.variants(item.videoId) })
     },
+  })
+}
+
+const FLAG_OUTCOME: Record<FlagVoteResult["status"], string> = {
+  removed: "Removed",
+  kept: "Kept",
+  open: "Vote counted on",
+}
+
+export function flagVoteMessage(status: FlagVoteResult["status"], song: string): string {
+  return `${FLAG_OUTCOME[status]} “${song}”`
+}
+
+export function useFlagVote() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ item, remove, note }: { item: CouncilFlag; remove: boolean; note: string | null }) =>
+      voteFlag(item.id, remove, note),
+    onSuccess: (result, { item }) => {
+      pushToast({ kind: "info", group: DECISION_TOAST, message: flagVoteMessage(result.status, item.song) })
+    },
+    onError: (error) => councilErrorToast(error, "record your vote"),
+    onSettled: (_, __, { item }) => refreshCouncil(client, { lyricsId: item.lyricsId, videoId: item.videoId }),
   })
 }
 

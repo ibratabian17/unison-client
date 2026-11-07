@@ -1,31 +1,45 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQueryClient } from "@tanstack/react-query"
 import { useCallback, useMemo, useState } from "react"
-import { useLocation, useNavigate, useParams, useSearchParams, Link } from "react-router-dom"
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { useSession } from "@/auth/useSession"
+import { EditLyricModal } from "@/components/EditLyricModal"
 import { EmptyState } from "@/components/EmptyState"
-import { LyricsContentSkeleton } from "@/components/LyricsRenderer"
+import { LinkedVideosModal } from "@/components/LinkedVideosModal"
 import { LyricsPanel } from "@/components/LyricsPanel"
+import { LyricsContentSkeleton } from "@/components/LyricsRenderer"
+import { usePageArt } from "@/components/PageArt"
 import { ReportModal } from "@/components/ReportModal"
-import { Bone } from "@/components/skeleton"
+import { RevisionHistoryModal } from "@/components/RevisionHistoryModal"
 import { VariantList, VariantListSkeleton } from "@/components/VariantList"
 import { VariantMetadata, VariantMetadataSkeleton } from "@/components/VariantMetadata"
+import { VoteControls } from "@/components/VoteControls"
 import { EditMetadataButton } from "@/components/council/EditMetadataButton"
 import { SealLyricButton } from "@/components/council/SealLyricButton"
-import { VoteControls } from "@/components/VoteControls"
 import { YouTubeMusicIcon } from "@/components/icons/YouTubeMusicIcon"
-import { IconPlus, IconFlag, IconTrash } from "@tabler/icons-react"
-import { EditLyricModal } from "@/components/EditLyricModal"
-import { RevisionHistoryModal } from "@/components/RevisionHistoryModal"
-import { LinkedVideosModal } from "@/components/LinkedVideosModal"
+import { Bone } from "@/components/skeleton"
+import { SongHero, SongHeroSkeleton } from "@/components/song/SongHero"
+import { SongRail, SongRailSkeleton } from "@/components/song/SongRail"
+import { useUiMode } from "@/context/UiModeContext"
+import { useFillHeight } from "@/hooks/useFillHeight"
+import { useLyricsVariant, useLyricsVariants } from "@/hooks/useLyricsData"
 import { useYouTubePlayer } from "@/hooks/useYouTubePlayer"
-import { fetchLyricsVariant, fetchLyricsVariants, deleteLyrics } from "@/lib/api"
-import { youTubeMusicUrl } from "@/lib/youtube-music"
+import { deleteLyrics } from "@/lib/api"
+import { songBackdrop, useArtwork } from "@/lib/artwork"
 import { cn } from "@/lib/cn"
+import { youTubeMusicUrl } from "@/lib/youtube-music"
+import { IconFlag, IconPlus, IconTrash } from "@tabler/icons-react"
 
-const HEADER_ACTION_CLASS =
+const NEW_PAGE =
+  "grid grid-cols-[minmax(0,1fr)_340px] items-start gap-x-12 min-[1001px]:-mb-8 max-[1000px]:grid-cols-[minmax(0,1fr)] max-[1000px]:gap-y-7 max-[1000px]:pb-[88px]"
+const LYRICS_FILL = "lyrics-fill"
+const LYRICS_SIZE = `${LYRICS_FILL} h-[max(var(--fill-height,560px),240px)] max-w-none max-[1000px]:h-[70dvh]`
+
+const CLASSIC_ACTION_CLASS =
   "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-unison-border bg-unison-bg-elevated px-2 py-1 text-xs text-unison-text-secondary transition-colors hover:border-unison-border-strong hover:bg-unison-bg-hover hover:text-unison-text"
 
 export function LyricsPage() {
+  const { uiMode } = useUiMode()
+  const isNew = uiMode === "new"
   const { videoId } = useParams<{ videoId: string }>()
   const [params, setParams] = useSearchParams()
   const [playerActive, setPlayerActive] = useState(false)
@@ -39,6 +53,7 @@ export function LyricsPage() {
   const variantIdParam = params.get("variantId")
   const navigate = useNavigate()
   const location = useLocation()
+  const lyricsRef = useFillHeight(`.${LYRICS_FILL}`)
 
   const handleBack = useCallback(() => {
     if (location.key === "default") navigate("/")
@@ -46,9 +61,13 @@ export function LyricsPage() {
   }, [location.key, navigate])
 
   const safeVideoId = videoId ?? ""
-  const { ref, getCurrentTime, getPlaying, seekTo, play } = useYouTubePlayer(
+  const { ref, getCurrentTime, getPlaying, playing, ready, failed, seekTo, play, pause } = useYouTubePlayer(
     safeVideoId.length > 0 ? safeVideoId : null,
-    { playerVars: { autoplay: 1 } },
+    {
+      playerVars: isNew
+        ? { autoplay: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, rel: 0, playsinline: 1 }
+        : { autoplay: 1 },
+    },
   )
 
   const [playerVideoId, setPlayerVideoId] = useState(safeVideoId)
@@ -58,13 +77,13 @@ export function LyricsPage() {
   }
 
   const activatePlayer = useCallback(() => setPlayerActive(true), [])
+  const togglePlay = useCallback(() => {
+    if (!playerActive) setPlayerActive(true)
+    else if (getPlaying()) pause()
+    else play()
+  }, [playerActive, getPlaying, pause, play])
 
-  const variantsQuery = useQuery({
-    queryKey: ["lyrics", "variants", safeVideoId],
-    queryFn: ({ signal }) => fetchLyricsVariants(safeVideoId, { signal }),
-    enabled: safeVideoId.length > 0,
-    staleTime: 30_000,
-  })
+  const variantsQuery = useLyricsVariants(safeVideoId)
 
   const variants = useMemo(() => variantsQuery.data?.variants ?? [], [variantsQuery.data])
   const requestedId = variantIdParam !== null ? Number(variantIdParam) : null
@@ -73,15 +92,15 @@ export function LyricsPage() {
     return variants[0]?.id
   }, [requestedId, variants])
 
-  const variantQuery = useQuery({
-    queryKey: ["lyrics", "variant", selectedId],
-    queryFn: ({ signal }) => {
-      if (selectedId === undefined) throw new Error("no variant selected")
-      return fetchLyricsVariant(selectedId, { signal })
-    },
-    enabled: selectedId !== undefined,
-    staleTime: 30_000,
-  })
+  const variantQuery = useLyricsVariant(selectedId)
+
+  const { data: art, isPending: artPending } = useArtwork(safeVideoId)
+  const lead = variants[0]
+  const backdrop = useMemo(
+    () => (artPending || !lead ? null : songBackdrop(safeVideoId, Boolean(art), lead.song, lead.artist)),
+    [artPending, lead, art, safeVideoId],
+  )
+  usePageArt(backdrop, playing)
 
   const handleSelect = useCallback(
     (id: number) => {
@@ -119,18 +138,23 @@ export function LyricsPage() {
 
   if (!videoId) return <EmptyState title="No video specified" />
 
-  if (variantsQuery.isLoading) return <LyricsPageSkeleton />
+  if (variantsQuery.isLoading) {
+    return isNew ? <NewLyricsPageSkeleton lyricsRef={lyricsRef} /> : <ClassicLyricsPageSkeleton />
+  }
   if (variantsQuery.isError) {
     const message = variantsQuery.error instanceof Error ? variantsQuery.error.message : "Unknown error"
     return <EmptyState title="Could not load lyrics" hint={message} />
   }
   if (variants.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-center space-y-4">
-        <EmptyState title="No lyrics yet" hint="Be the first to submit synchronized lyrics for this song!" />
+      <div className="flex flex-col items-center justify-center space-y-4 py-16 text-center">
+        <EmptyState
+          title="No lyrics yet"
+          hint="Request this song for the community queue, or submit synchronized lyrics directly."
+        />
         <Link
           to={`/submit?videoId=${encodeURIComponent(safeVideoId)}`}
-          className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-xs font-semibold text-white shadow hover:bg-red-500 transition-colors"
+          className="inline-flex items-center gap-2 rounded-xl bg-unison-text px-4 py-2 text-xs font-bold text-[#121117] shadow transition-opacity hover:opacity-90"
         >
           <IconPlus className="size-4" />
           <span>Submit Lyrics</span>
@@ -139,155 +163,214 @@ export function LyricsPage() {
     )
   }
 
-  const variant = variantQuery.data?.variant
-  const isOwner =
-    session.status === "signed-in" &&
-    variant?.submitter?.keyId &&
-    session.identity.keyId === variant.submitter.keyId
+  const loaded = variantQuery.data?.variant
+  const variant = loaded && variants.some((v) => v.id === loaded.id) ? loaded : undefined
+  const isOwner = Boolean(
+    session.status === "signed-in" && variant?.submitter?.keyId && session.identity.keyId === variant.submitter.keyId,
+  )
 
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <button
-          type="button"
-          onClick={handleBack}
-          className="cursor-pointer text-xs text-unison-text-muted transition-colors hover:text-unison-text"
-        >
-          ‹ back
-        </button>
-        {variant && selectedId !== undefined ? (
-          <div className="flex items-center gap-3">
-            <EditMetadataButton
-              videoId={safeVideoId}
-              lyricsId={variant.id}
-              current={{ song: variant.song, artist: variant.artist, album: variant.album ?? null }}
-            />
-            <SealLyricButton videoId={safeVideoId} lyricsId={variant.id} />
-            <VoteControls
-              variantId={variant.id}
-              videoId={safeVideoId}
-              variant={{ score: variant.score, userVote: variant.userVote ?? null }}
-            />
-          </div>
-        ) : (
-          <Bone className="h-9 w-28 rounded-lg" />
-        )}
-      </div>
+  const modals = variant ? (
+    <>
+      <EditLyricModal
+        variant={variant}
+        isOpen={editOpen}
+        onClose={() => setEditOpen(false)}
+        onSaved={() => {
+          void queryClient.invalidateQueries({ queryKey: ["lyrics", "variants", safeVideoId] })
+          void queryClient.invalidateQueries({ queryKey: ["lyrics", "variant", selectedId] })
+        }}
+      />
+      <RevisionHistoryModal
+        variant={variant}
+        isOwner={isOwner}
+        isOpen={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        onReverted={() => {
+          void queryClient.invalidateQueries({ queryKey: ["lyrics", "variants", safeVideoId] })
+          void queryClient.invalidateQueries({ queryKey: ["lyrics", "variant", selectedId] })
+        }}
+      />
+      <LinkedVideosModal
+        variant={variant}
+        isOwner={isOwner}
+        isOpen={videosOpen}
+        onClose={() => setVideosOpen(false)}
+        onUpdated={() => {
+          void queryClient.invalidateQueries({ queryKey: ["lyrics", "variants", safeVideoId] })
+        }}
+      />
+      <ReportModal
+        variantId={variant.id}
+        songTitle={variant.song}
+        isOpen={reportOpen}
+        onClose={() => setReportOpen(false)}
+      />
+    </>
+  ) : null
 
-      <div className="grid gap-6 sm:grid-cols-[minmax(0,384px)_minmax(0,1fr)]">
-        <div className="space-y-4">
-          {variant ? (
-            <VariantMetadata
-              variant={variant}
-              playerRef={ref}
-              playerActive={playerActive}
-              onActivatePlayer={activatePlayer}
-              onOpenHistory={() => setHistoryOpen(true)}
-              onOpenVideos={() => setVideosOpen(true)}
-              onOpenEdit={isOwner ? () => setEditOpen(true) : undefined}
-              isOwner={Boolean(isOwner)}
-            />
+  if (!isNew) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <button
+            type="button"
+            onClick={handleBack}
+            className="cursor-pointer text-xs text-unison-text-muted transition-colors hover:text-unison-text"
+          >
+            ‹ back
+          </button>
+          {variant && selectedId !== undefined ? (
+            <div className="flex items-center gap-3">
+              <EditMetadataButton
+                videoId={safeVideoId}
+                lyricsId={variant.id}
+                current={{ song: variant.song, artist: variant.artist, album: variant.album ?? null }}
+              />
+              <SealLyricButton videoId={safeVideoId} lyricsId={variant.id} />
+              <VoteControls
+                variantId={variant.id}
+                videoId={safeVideoId}
+                variant={{ score: variant.score, userVote: variant.userVote ?? null }}
+              />
+            </div>
           ) : (
-            <VariantMetadataSkeleton />
+            <Bone className="h-9 w-28 rounded-lg" />
           )}
-
-          <div className="flex flex-col gap-2">
-            <a
-              href={youTubeMusicUrl(safeVideoId)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-center gap-2 rounded-[10px] bg-white/[0.08] px-4 py-3 text-[13px] font-semibold text-unison-text shadow-[0_1px_2px_rgba(0,0,0,0.4),inset_0_1px_0_0_rgba(255,255,255,0.07)] transition-colors hover:bg-white/[0.12] active:translate-y-px"
-            >
-              <YouTubeMusicIcon className="size-[18px]" />
-              Open on YouTube Music
-            </a>
-
-            {variant && (
-              <div className="flex items-center justify-between gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setReportOpen(true)}
-                  className={cn(HEADER_ACTION_CLASS, "text-[11.5px]")}
-                  title="Report wrong lyrics or bad sync"
-                >
-                  <IconFlag className="size-3.5" />
-                  <span>Report</span>
-                </button>
-
-                {isOwner && (
-                  <button
-                    type="button"
-                    disabled={deleting}
-                    onClick={handleDelete}
-                    className={cn(
-                      HEADER_ACTION_CLASS,
-                      "hover:text-red-400 hover:border-red-500/40 text-red-400/80 text-[11.5px] cursor-pointer",
-                    )}
-                    title="Delete your submission"
-                  >
-                    <IconTrash className="size-3.5" />
-                    <span>{deleting ? "Deleting..." : "Delete"}</span>
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
         </div>
 
-        <div className="space-y-4">
+        <div className="grid gap-6 sm:grid-cols-[minmax(0,384px)_minmax(0,1fr)]">
+          <div className="space-y-4">
+            {variant ? (
+              <VariantMetadata
+                variant={variant}
+                playerRef={ref}
+                playerActive={playerActive}
+                onActivatePlayer={activatePlayer}
+                onOpenHistory={() => setHistoryOpen(true)}
+                onOpenVideos={() => setVideosOpen(true)}
+                onOpenEdit={isOwner ? () => setEditOpen(true) : undefined}
+                isOwner={isOwner}
+              />
+            ) : (
+              <VariantMetadataSkeleton />
+            )}
+
+            <div className="flex flex-col gap-2">
+              <a
+                href={youTubeMusicUrl(safeVideoId)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 rounded-[10px] bg-white/[0.08] px-4 py-3 text-[13px] font-semibold text-unison-text shadow-[0_1px_2px_rgba(0,0,0,0.4),inset_0_1px_0_0_rgba(255,255,255,0.07)] transition-colors hover:bg-white/[0.12] active:translate-y-px"
+              >
+                <YouTubeMusicIcon className="size-[18px]" />
+                Open on YouTube Music
+              </a>
+
+              {variant ? (
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setReportOpen(true)}
+                    className={cn(CLASSIC_ACTION_CLASS, "text-[11.5px]")}
+                    title="Report wrong lyrics or bad sync"
+                  >
+                    <IconFlag className="size-3.5" />
+                    <span>Report</span>
+                  </button>
+
+                  {isOwner ? (
+                    <button
+                      type="button"
+                      disabled={deleting}
+                      onClick={handleDelete}
+                      className={cn(
+                        CLASSIC_ACTION_CLASS,
+                        "cursor-pointer text-[11.5px] text-red-400/80 hover:border-red-500/40 hover:text-red-400",
+                      )}
+                      title="Delete your submission"
+                    >
+                      <IconTrash className="size-3.5" />
+                      <span>{deleting ? "Deleting..." : "Delete"}</span>
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <LyricsPanel
+              variant={variantQuery.isLoading ? undefined : variant}
+              getCurrentTime={getCurrentTime}
+              getPlaying={getPlaying}
+              playing={playing}
+              onLineClick={handleLineClick}
+            />
+            <VariantList variants={variants} selectedId={selectedId ?? -1} onSelect={handleSelect} />
+          </div>
+        </div>
+        {modals}
+      </div>
+    )
+  }
+
+  return (
+    <div className={NEW_PAGE}>
+      <div className="min-w-0">
+        {variant ? (
+          <SongHero
+            variant={variant}
+            versions={variants.length}
+            art={art}
+            player={{ ref, active: playerActive, playing, ready, failed, onToggle: togglePlay }}
+            onDelete={isOwner ? handleDelete : undefined}
+            deleting={deleting}
+          />
+        ) : (
+          <SongHeroSkeleton />
+        )}
+        <div ref={lyricsRef} className="lyrics-view">
           <LyricsPanel
             variant={variantQuery.isLoading ? undefined : variant}
             getCurrentTime={getCurrentTime}
             getPlaying={getPlaying}
+            playing={playing}
             onLineClick={handleLineClick}
+            lyricsClassName={LYRICS_SIZE}
           />
-          <VariantList variants={variants} selectedId={selectedId ?? -1} onSelect={handleSelect} />
         </div>
       </div>
-
-      {variant && (
-        <>
-          <EditLyricModal
-            variant={variant}
-            isOpen={editOpen}
-            onClose={() => setEditOpen(false)}
-            onSaved={() => {
-              void queryClient.invalidateQueries({ queryKey: ["lyrics", "variants", safeVideoId] })
-              void queryClient.invalidateQueries({ queryKey: ["lyrics", "variant", selectedId] })
-            }}
-          />
-          <RevisionHistoryModal
-            variant={variant}
-            isOwner={Boolean(isOwner)}
-            isOpen={historyOpen}
-            onClose={() => setHistoryOpen(false)}
-            onReverted={() => {
-              void queryClient.invalidateQueries({ queryKey: ["lyrics", "variants", safeVideoId] })
-              void queryClient.invalidateQueries({ queryKey: ["lyrics", "variant", selectedId] })
-            }}
-          />
-          <LinkedVideosModal
-            variant={variant}
-            isOwner={Boolean(isOwner)}
-            isOpen={videosOpen}
-            onClose={() => setVideosOpen(false)}
-            onUpdated={() => {
-              void queryClient.invalidateQueries({ queryKey: ["lyrics", "variants", safeVideoId] })
-            }}
-          />
-          <ReportModal
-            variantId={variant.id}
-            songTitle={variant.song}
-            isOpen={reportOpen}
-            onClose={() => setReportOpen(false)}
-          />
-        </>
-      )}
+      <SongRail
+        variant={variant}
+        variants={variants}
+        selectedId={selectedId ?? -1}
+        onSelect={handleSelect}
+        onOpenHistory={() => setHistoryOpen(true)}
+        onOpenVideos={() => setVideosOpen(true)}
+        onOpenEdit={isOwner ? () => setEditOpen(true) : undefined}
+        onOpenReport={() => setReportOpen(true)}
+        isOwner={isOwner}
+      />
+      {modals}
     </div>
   )
 }
 
-function LyricsPageSkeleton() {
+function NewLyricsPageSkeleton({ lyricsRef }: { lyricsRef: (node: HTMLElement | null) => void }) {
+  return (
+    <div className={NEW_PAGE}>
+      <div className="min-w-0">
+        <SongHeroSkeleton />
+        <div ref={lyricsRef} className="lyrics-view">
+          <LyricsContentSkeleton className={LYRICS_SIZE} />
+        </div>
+      </div>
+      <SongRailSkeleton />
+    </div>
+  )
+}
+
+function ClassicLyricsPageSkeleton() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">

@@ -22,6 +22,7 @@ const SECTION_KEYS: Record<string, string[]> = {
   overview: ["G", "O"],
   queue: ["G", "Q"],
   edits: ["G", "E"],
+  flags: ["G", "F"],
   activity: ["G", "A"],
 }
 
@@ -43,7 +44,7 @@ function useCommands(): Command[] {
       id: `seal-${i.id}`,
       group: "Items",
       label: `${i.song} · ${i.artist}`,
-      icon: <SongThumbnail videoId={i.videoId} className="size-6 rounded" />,
+      icon: <SongThumbnail videoId={i.videoId} song={i.song} artist={i.artist} className="size-6 rounded" />,
       end: <span className="text-xs text-unison-text-muted">Seal queue</span>,
       to: `/council/queue?item=${i.id}`,
     })),
@@ -51,7 +52,7 @@ function useCommands(): Command[] {
       id: `edit-${e.revisionId}`,
       group: "Items",
       label: `${e.song} · ${e.artist}`,
-      icon: <SongThumbnail videoId={e.videoId} className="size-6 rounded" />,
+      icon: <SongThumbnail videoId={e.videoId} song={e.song} artist={e.artist} className="size-6 rounded" />,
       end: <span className="text-xs text-unison-text-muted">Edit</span>,
       to: `/council/edits?item=${e.revisionId}`,
     })),

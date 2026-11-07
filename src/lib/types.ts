@@ -2,53 +2,6 @@ export type LyricsFormat = "ttml" | "lrc" | "plain"
 export type SyncType = "richsync" | "linesync" | "plain"
 export type Confidence = "low" | "medium" | "high"
 
-export type FeedSort = "newest" | "top-rated" | "most-voted"
-export type FeedSortDir = "desc" | "asc"
-export type FeedSyncType = "all" | "richsync" | "linesync" | "plain"
-export type FeedTier = "all" | "trusted-plus" | "top-rated"
-export type FeedFormat = "all" | "lrc" | "ttml" | "plain"
-
-export interface FeedFilters {
-  sort: FeedSort
-  sortDir: FeedSortDir
-  syncType: FeedSyncType
-  tier: FeedTier
-  format: FeedFormat
-  language: string
-}
-
-export interface UnisonFeedEntry {
-  id: number
-  videoId: string
-  song: string
-  artist: string
-  album?: string
-  isrc?: string
-  duration: number
-  format: LyricsFormat
-  language?: string
-  syncType: SyncType
-  score: number
-  effectiveScore: number
-  voteCount: number
-  confidence: Confidence
-  createdAt: number
-  marks?: Array<{ type: string; label: string; icon: string }>
-  userVote?: 1 | -1 | null
-}
-
-export interface UnisonSubmission {
-  videoId: string
-  song: string
-  artist: string
-  duration: number
-  lyrics: string
-  format: LyricsFormat | "auto"
-  album?: string
-  isrc?: string
-  language?: string
-}
-
 export interface SongLeaderboardEntry {
   videoId: string
   song: string
@@ -102,6 +55,13 @@ export interface UserStats {
   lastVoteAt: number | null
   discordLinked: boolean
   avatarUrl?: string | null
+  banner?: { videoId: string; artworkUrl: string }
+  discord?: { id: string; username: string }
+}
+
+export interface ProfileSettings {
+  banner: string | null
+  showDiscord: boolean
 }
 
 export interface RankedUserStats extends UserStats {
@@ -118,9 +78,6 @@ export interface UnrankedUserStats extends UserStats {
 }
 
 export type UserRankResponse = RankedUserStats | UnrankedUserStats
-
-export type SubmissionSyncType = "richsync" | "linesync" | "plain"
-export type SubmissionSort = "newest" | "oldest" | "most_votes" | "least_votes"
 
 export interface UserSubmission {
   id: number
@@ -139,28 +96,12 @@ export interface UserSubmission {
   hidden: boolean
 }
 
+export type SubmissionSyncType = "richsync" | "linesync" | "plain"
+export type SubmissionSort = "newest" | "oldest" | "most_votes" | "least_votes"
+
 export interface UserSubmissionsResponse {
   submissions: UserSubmission[]
   nextCursor?: string
-}
-
-export interface FeedEntry {
-  id: number
-  videoId: string
-  song: string
-  artist: string
-  syncType: SyncType
-  createdAt: number
-  marks?: Mark[]
-  submitter?: MarkActor
-}
-
-export type SealedSort = "recently-sealed" | "top-rated"
-export type SealedSyncFilter = "richsync" | "linesync"
-
-export interface Page<T> {
-  items: T[]
-  nextCursor: string | null
 }
 
 export interface LyricsSearchHit {
@@ -187,6 +128,7 @@ export interface VariantSubmitter {
   displayName: string
   tier: TierName | null
   level: number
+  levelProgress?: number
   badgeCount: number
   topBadge: LeaderboardBadge | null
   featured: LeaderboardBadge[]
@@ -211,8 +153,32 @@ export interface Mark {
   at?: number
 }
 
+export interface FeedEntry {
+  id: number
+  videoId: string
+  song: string
+  artist: string
+  format: LyricsFormat
+  syncType: SyncType
+  createdAt: number
+  voteCount?: number
+  marks?: Mark[]
+  submitter?: MarkActor
+}
+
+export type SealedSort = "recently-sealed" | "top-rated"
+export type SealedSyncFilter = "richsync" | "linesync"
+
+export interface Page<T> {
+  items: T[]
+  nextCursor: string | null
+}
+
 export interface VariantSummary {
   id: number
+  duration?: number
+  createdAt?: number
+  fulfilled?: UnisonFulfillment
   videoId: string
   song: string
   artist: string
@@ -229,12 +195,16 @@ export interface VariantSummary {
   submitter?: VariantSubmitter
   marks?: Mark[]
   userVote?: 1 | -1 | null
-  createdAt?: number
-  duration?: number
+}
+
+export interface VariantRevision {
+  revNo: number
+  updatedAt: number
 }
 
 export interface VariantFull extends VariantSummary {
   lyrics: string
+  revision?: VariantRevision
 }
 
 export interface QueueEntry {
@@ -355,49 +325,93 @@ export type AvatarChoice =
   | { type: "discord" }
   | { type: "default" }
 
+
+export type FeedSort = "default" | "newest" | "top-rated" | "most-voted"
+export type FeedSortDir = "desc" | "asc"
+export type FeedSyncType = "all" | "richsync" | "linesync" | "plain"
+export type FeedTier = "all" | "trusted-plus" | "top-rated"
+export type FeedFormat = "all" | "lrc" | "ttml" | "plain"
+
+export interface FeedFilters {
+  sort: FeedSort
+  sortDir: FeedSortDir
+  syncType: FeedSyncType
+  tier: FeedTier
+  format: FeedFormat
+  language: string
+}
+
+export interface UnisonFulfillment {
+  demand: number
+  requestCount: number
+  fulfilledAt: number
+}
+
+export interface UnisonFeedEntry {
+  id: number
+  videoId: string
+  song: string
+  artist: string
+  album?: string
+  isrc?: string
+  duration: number
+  format: LyricsFormat
+  language?: string
+  syncType: SyncType
+  score: number
+  effectiveScore: number
+  voteCount: number
+  confidence: Confidence
+  createdAt: number
+  marks?: Mark[]
+  submitter?: MarkActor
+  fulfilled?: UnisonFulfillment
+  userVote?: 1 | -1 | null
+}
+
+export interface UnisonSubmission {
+  videoId: string
+  song: string
+  artist: string
+  duration: number
+  lyrics: string
+  format: LyricsFormat | "auto"
+  album?: string
+  isrc?: string
+  language?: string
+}
+
 export interface LyricRevision {
   id: number
   lyricId: number
   version?: number
-  lyrics: string
-  format: LyricsFormat
+  revNo?: number
+  lyrics?: string
+  format?: LyricsFormat
   language?: string
+  album?: string
   isrc?: string
-  album?: string | null
-  status: "pending" | "approved" | "rejected"
+  status: string
   createdAt: number
   author?: {
     keyId: string
     displayName: string
     avatarUrl?: string | null
   }
-  summary?: string
-  driftScore?: number
 }
-
-export type {
-  DiffRow,
-  DiffPart,
-  HeadTextRef,
-  RevisionDiff,
-  RevisionSummary,
-  RevisionStatus,
-} from "./revision-types"
 
 export interface LinkedVideo {
   videoId: string
-  primary: boolean
-  title?: string
-  authorName?: string
-  duration?: number
-  addedAt?: number
+  primary?: boolean
+  createdAt?: number
 }
 
 export interface VideoSuggestion {
   videoId: string
   title: string
-  authorName?: string
+  author?: string
   duration?: number
-  matchType?: "official" | "lyric_video" | "audio"
+  thumbnailUrl?: string
 }
 
+export type { RevisionDiff, RevisionSummary, DiffRow, DiffPart } from "./revision-types"

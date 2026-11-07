@@ -1,7 +1,7 @@
 import { Kbd } from "@/components/Kbd"
 import { LyricsPanel } from "@/components/LyricsPanel"
 import { parseVariantLyrics } from "@/components/LyricsRenderer"
-import { VariantCover } from "@/components/VariantMetadata"
+import { VariantCover } from "@/components/VariantCover"
 import { Bone } from "@/components/skeleton"
 import { buttonClass } from "@/components/ui"
 import { useCouncilShortcuts } from "@/hooks/useCouncilShortcuts"
@@ -62,6 +62,7 @@ export function LyricPreview({ lyricId, videoId }: { lyricId: number; videoId: s
           variant={variant}
           getCurrentTime={player.getCurrentTime}
           getPlaying={player.getPlaying}
+          playing={player.playing}
           onLineClick={playFrom}
           lyricsClassName="h-[440px] [--blyrics-font-size:1.5rem]"
         />

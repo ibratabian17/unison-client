@@ -1,59 +1,79 @@
-import { useSession } from "@/auth/useSession";
-import { UserAvatar } from "@/components/UserAvatar";
-import { IconCheck, IconCopy, IconFileUpload, IconLogout, IconPuzzle, IconUser } from "@tabler/icons-react";
-import { type ChangeEvent, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { useSession } from "@/auth/useSession"
+import { UserAvatar } from "@/components/UserAvatar"
+import { IconSwap } from "@/components/icons/IconSwap"
+import { glassClass, popoverSurfaceClass } from "@/components/ui"
+import { useUiMode } from "@/context/UiModeContext"
+import { useCopied } from "@/hooks/useCopied"
+import { usePresence } from "@/hooks/usePresence"
+import { cn } from "@/lib/cn"
+import {
+  IconCheck,
+  IconClipboardText,
+  IconCopy,
+  IconFileUpload,
+  IconLogout,
+  IconPuzzle,
+  IconSettings,
+  IconUser,
+} from "@tabler/icons-react"
+import { type ChangeEvent, useEffect, useRef, useState } from "react"
+import { Link } from "react-router-dom"
 
-export function SignInControl() {
-  const session = useSession();
-  const menu = session.status === "signed-in" ? "account" : "sign-in";
-  const [openMenu, setOpenMenu] = useState<"account" | "sign-in" | null>(null);
-  const open = openMenu === menu;
+export function SignInControl({ glass = false }: { glass?: boolean }) {
+  const session = useSession()
+  const { setSettingsOpen } = useUiMode()
+  const menu = session.status === "signed-in" ? "account" : "sign-in"
+  const [openMenu, setOpenMenu] = useState<"account" | "sign-in" | null>(null)
+  const [showPasteBox, setShowPasteBox] = useState(false)
+  const [pastedKeyJson, setPastedKeyJson] = useState("")
+  const open = openMenu === menu
+  const presence = usePresence(open)
   const setOpen = (next: boolean | ((current: boolean) => boolean)) =>
     setOpenMenu((current) => {
-      const value = typeof next === "function" ? next(current === menu) : next;
-      return value ? menu : null;
-    });
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [copied, setCopied] = useState(false);
-  const wrapperRef = useRef<HTMLDivElement | null>(null);
+      const value = typeof next === "function" ? next(current === menu) : next
+      if (!value) {
+        setShowPasteBox(false)
+        setPastedKeyJson("")
+      }
+      return value ? menu : null
+    })
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const [copied, copy] = useCopied()
+  const wrapperRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) return
     const onClick = (e: MouseEvent) => {
-      if (!wrapperRef.current?.contains(e.target as Node)) setOpenMenu(null);
-    };
+      if (!wrapperRef.current?.contains(e.target as Node)) {
+        setOpenMenu(null)
+        setShowPasteBox(false)
+      }
+    }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpenMenu(null);
-    };
-    document.addEventListener("mousedown", onClick);
-    document.addEventListener("keydown", onKey);
+      if (e.key === "Escape") {
+        setOpenMenu(null)
+        setShowPasteBox(false)
+      }
+    }
+    document.addEventListener("mousedown", onClick)
+    document.addEventListener("keydown", onKey)
     return () => {
-      document.removeEventListener("mousedown", onClick);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+      document.removeEventListener("mousedown", onClick)
+      document.removeEventListener("keydown", onKey)
+    }
+  }, [open])
 
   if (session.status === "loading") {
-    return (
-      <div
-        data-state="loading"
-        className="h-8 w-24 animate-pulse rounded-md bg-unison-bg-elevated"
-      />
-    );
+    return <div data-state="loading" className="h-8 w-24 animate-pulse rounded-md bg-unison-bg-elevated" />
   }
 
   if (session.status === "signed-in") {
-    const { identity } = session;
-    const copyKey = async () => {
-      await navigator.clipboard.writeText(identity.keyId);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    };
+    const { identity } = session
+    const copyKey = () => copy(identity.keyId)
     const signOut = () => {
-      setOpen(false);
-      session.signOut();
-    };
+      setOpen(false)
+      session.signOut()
+    }
     return (
       <div className="relative" ref={wrapperRef} data-state="signed-in">
         <button
@@ -62,45 +82,49 @@ export function SignInControl() {
           aria-haspopup="menu"
           aria-expanded={open}
           aria-label={identity.displayName}
-          className="flex cursor-pointer items-center gap-2 rounded-full p-1 pr-3 transition-colors hover:bg-unison-bg-hover"
+          className={cn(
+            "flex cursor-pointer items-center gap-2 rounded-full p-1 pr-3 transition-colors",
+            glass ? cn(glassClass, "hover:bg-white/[0.14]") : "hover:bg-unison-bg-hover",
+          )}
         >
           <UserAvatar
             avatarUrl={identity.avatarUrl}
             keyId={identity.keyId}
             className="size-7 rounded-full border border-unison-border bg-unison-bg-hover"
           />
-          <span className="hidden text-sm font-medium text-unison-text sm:inline">
-            {identity.displayName}
-          </span>
+          <span className="hidden text-sm font-medium text-unison-text sm:inline">{identity.displayName}</span>
         </button>
-        {open ? (
+        {presence.mounted ? (
           <div
             role="menu"
+            data-origin="top-right"
             data-state="open"
-            className="absolute right-0 z-20 mt-2 w-56 rounded-lg border border-unison-border bg-unison-bg-elevated p-3 shadow-lg"
+            className={cn(
+              glass
+                ? cn(popoverSurfaceClass, "rounded-2xl")
+                : "rounded-lg border border-unison-border bg-unison-bg-elevated shadow-lg",
+              "t-dropdown absolute right-0 z-20 mt-2 w-56 p-3",
+              presence.closing && "is-closing",
+            )}
           >
             <div className="space-y-2 pb-3">
-              <p className="text-[10px] uppercase tracking-wider text-unison-text-muted">
-                Key ID
-              </p>
+              <p className="text-xs text-unison-text-muted">Key ID</p>
               <div className="flex items-center gap-2">
-                <code
-                  title={identity.keyId}
-                  className="min-w-0 flex-1 font-mono text-xs text-unison-text"
-                >
+                <code title={identity.keyId} className="min-w-0 flex-1 font-mono text-xs text-unison-text">
                   {`${identity.keyId.slice(0, 6)}…${identity.keyId.slice(-6)}`}
                 </code>
                 <button
                   type="button"
                   onClick={copyKey}
                   aria-label={copied ? "Copied" : "Copy key id"}
-                  className="group cursor-pointer shrink-0 rounded-md p-1 text-unison-text transition-colors hover:bg-unison-bg-hover"
+                  className="group shrink-0 cursor-pointer rounded-md p-1 text-unison-text transition-colors hover:bg-unison-bg-hover"
                 >
-                  {copied ? (
-                    <IconCheck className="size-4 opacity-50 transition-opacity group-hover:opacity-100" stroke={1.5} />
-                  ) : (
-                    <IconCopy className="size-4 opacity-50 transition-opacity group-hover:opacity-100" stroke={1.5} />
-                  )}
+                  <IconSwap
+                    swapped={copied}
+                    from={<IconCopy className="size-full" stroke={1.5} />}
+                    to={<IconCheck className="size-full" stroke={1.5} />}
+                    className="size-4 opacity-50 transition-opacity group-hover:opacity-100"
+                  />
                 </button>
               </div>
             </div>
@@ -112,13 +136,25 @@ export function SignInControl() {
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-unison-text transition-colors hover:bg-unison-bg-hover"
               >
                 <IconUser className="size-4" stroke={1.5} />
-                View stats
+                Profile &amp; Stats
               </Link>
               <button
                 type="button"
                 onClick={() => {
-                  setOpen(false);
-                  void session.exportIdentityFile();
+                  setOpen(false)
+                  setSettingsOpen(true)
+                }}
+                role="menuitem"
+                className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-unison-text transition-colors hover:bg-unison-bg-hover"
+              >
+                <IconSettings className="size-4" stroke={1.5} />
+                Settings
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false)
+                  void session.exportIdentityFile()
                 }}
                 role="menuitem"
                 className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-unison-text transition-colors hover:bg-unison-bg-hover"
@@ -139,114 +175,149 @@ export function SignInControl() {
           </div>
         ) : null}
       </div>
-    );
+    )
   }
 
   const onIdentityFile = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (file) void session.signInWithFile(file);
-  };
+    const file = e.target.files?.[0]
+    e.target.value = ""
+    if (file) {
+      setOpen(false)
+      void session.signInWithFile(file)
+    }
+  }
 
-  if (!session.extensionAvailable) {
-    return (
-      <div className="relative" ref={wrapperRef} data-state="no-extension">
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          aria-haspopup="menu"
-          aria-expanded={open}
-          className="cursor-pointer rounded-md bg-unison-bg-elevated px-3 py-1.5 text-sm font-medium text-unison-text transition-colors hover:bg-unison-bg-hover"
-        >
-          Sign in
-        </button>
-        {open ? (
-          <div
-            role="menu"
-            data-state="open"
-            className="absolute right-0 z-20 mt-2 w-64 rounded-lg border border-unison-border bg-unison-bg-elevated p-3 shadow-lg"
-          >
-            <div className="space-y-1 pb-3">
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setOpen(false);
-                  void session.signInWithExtension();
-                }}
-                disabled={session.signingIn}
-                className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-unison-text transition-colors hover:bg-unison-bg-hover disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <IconPuzzle className="size-4 text-unison-text-secondary" stroke={1.5} />
-                {session.signingIn ? "Signing in..." : "Sign in with extension"}
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={session.signingIn}
-                className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-unison-text transition-colors hover:bg-unison-bg-hover disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <IconFileUpload className="size-4 text-unison-text-secondary" stroke={1.5} />
-                {session.signingIn ? "Signing in..." : "Upload identity file"}
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".json,application/json"
-                aria-label="Identity file"
-                className="hidden"
-                onChange={onIdentityFile}
-              />
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setOpen(false);
-                  void session.signInWithPublicAccount();
-                }}
-                disabled={session.signingIn}
-                className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-unison-text transition-colors hover:bg-unison-bg-hover disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <IconUser className="size-4 text-unison-text-secondary" stroke={1.5} />
-                Use public account
-              </button>
-              <p className="px-2 pt-1 text-xs leading-relaxed text-unison-text-muted">
-                Export it in Better Lyrics options → Identity → Export Key. Only upload it on this site, it is the key
-                to your account.
-              </p>
-              {session.status === "error" ? (
-                <p role="alert" className="px-2 pt-1 text-xs text-red-400">
-                  {session.error.message}
-                </p>
-              ) : null}
-            </div>
-            <div className="border-t border-unison-border pt-2">
-              <a
-                href="https://betterlyrics.org"
-                target="_blank"
-                rel="noopener noreferrer"
-                role="menuitem"
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-unison-text-secondary transition-colors hover:bg-unison-bg-hover hover:text-unison-text"
-              >
-                Get Better Lyrics
-              </a>
-            </div>
-          </div>
-        ) : null}
-      </div>
-    );
+  const handlePasteSignIn = () => {
+    const trimmed = pastedKeyJson.trim()
+    if (!trimmed) return
+    const file = new File([trimmed], "better-lyrics-identity.json", { type: "application/json" })
+    setOpen(false)
+    void session.signInWithFile(file)
   }
 
   return (
-    <button
-      type="button"
-      onClick={session.signIn}
-      disabled={session.signingIn}
-      className="cursor-pointer rounded-md bg-unison-bg-elevated px-3 py-1.5 text-sm font-medium text-unison-text transition-colors hover:bg-unison-bg-hover disabled:cursor-not-allowed disabled:opacity-50"
-      data-state="signed-out"
-    >
-      Sign in with Better Lyrics
-    </button>
-  );
+    <div className="relative" ref={wrapperRef} data-state={session.extensionAvailable ? "signed-out" : "no-extension"}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className={cn(
+          "cursor-pointer px-3 py-1.5 text-sm font-medium text-unison-text transition-colors hover:bg-unison-bg-hover",
+          glass ? cn(glassClass, "h-9 rounded-[10px]") : "rounded-md bg-unison-bg-elevated",
+        )}
+      >
+        Sign in
+      </button>
+      {presence.mounted ? (
+        <div
+          role="menu"
+          data-origin="top-right"
+          data-state="open"
+          className={cn(
+            glass
+              ? cn(popoverSurfaceClass, "rounded-2xl")
+              : "rounded-lg border border-unison-border bg-unison-bg-elevated shadow-lg",
+            "t-dropdown absolute right-0 z-20 mt-2 w-64 p-3",
+            presence.closing && "is-closing",
+          )}
+        >
+          <div className="space-y-1 pb-2">
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false)
+                void session.signInWithExtension()
+              }}
+              disabled={session.signingIn}
+              className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-unison-text transition-colors hover:bg-unison-bg-hover disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <IconPuzzle className="size-4 text-unison-text-secondary" stroke={1.5} />
+              {session.signingIn ? "Signing in..." : "Sign in with extension"}
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={session.signingIn}
+              className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-unison-text transition-colors hover:bg-unison-bg-hover disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <IconFileUpload className="size-4 text-unison-text-secondary" stroke={1.5} />
+              Upload identity file
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json,application/json"
+              aria-label="Identity file"
+              className="hidden"
+              onChange={onIdentityFile}
+            />
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => setShowPasteBox((v) => !v)}
+              disabled={session.signingIn}
+              className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-unison-text transition-colors hover:bg-unison-bg-hover disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <IconClipboardText className="size-4 text-unison-text-secondary" stroke={1.5} />
+              Paste identity key JSON
+            </button>
+            {showPasteBox ? (
+              <div className="space-y-1.5 px-2 pt-1">
+                <textarea
+                  value={pastedKeyJson}
+                  onChange={(e) => setPastedKeyJson(e.target.value)}
+                  rows={3}
+                  placeholder='{"version":1,"publicKeyJwk":...}'
+                  className="w-full rounded-md border border-white/15 bg-black/40 p-2 font-mono text-[11px] text-unison-text placeholder:text-unison-text-muted focus:border-white/35 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={handlePasteSignIn}
+                  disabled={!pastedKeyJson.trim() || session.signingIn}
+                  className="w-full cursor-pointer rounded-md bg-unison-text py-1.5 text-xs font-semibold text-[#121117] transition-opacity hover:opacity-90 disabled:opacity-40"
+                >
+                  Import &amp; Sign in
+                </button>
+              </div>
+            ) : null}
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false)
+                void session.signInWithPublicAccount()
+              }}
+              disabled={session.signingIn}
+              className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-unison-text transition-colors hover:bg-unison-bg-hover disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <IconUser className="size-4 text-unison-text-secondary" stroke={1.5} />
+              Use browser key
+            </button>
+            {session.status === "error" ? (
+              <p role="alert" className="px-2 pt-1 text-xs text-red-400">
+                {session.error.message}
+              </p>
+            ) : null}
+          </div>
+          <div className="border-t border-unison-border pt-2 space-y-1">
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false)
+                setSettingsOpen(true)
+              }}
+              className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-unison-text transition-colors hover:bg-unison-bg-hover"
+            >
+              <IconSettings className="size-4 text-unison-text-secondary" stroke={1.5} />
+              Settings
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
 }

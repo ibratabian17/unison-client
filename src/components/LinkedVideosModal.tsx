@@ -1,3 +1,5 @@
+import { popoverSurfaceClass } from "@/components/ui"
+import { useUiMode } from "@/context/UiModeContext"
 import { useEffect, useRef, useState } from "react"
 import {
   IconCheck,
@@ -144,7 +146,7 @@ export function LinkedVideosModal({
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <div className="relative flex flex-col w-full max-w-lg max-h-[85vh] overflow-hidden rounded-[18px] bg-[#111114] border border-unison-border-strong shadow-[0_24px_60px_rgba(0,0,0,0.6)]">
+      <div className="relative flex flex-col w-full max-w-lg max-h-[85vh] overflow-hidden rounded-[18px] bg-[#121117]/90 border border-white/12 shadow-[0_24px_60px_rgba(0,0,0,0.65)] backdrop-blur-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-unison-border/80 px-5 py-3.5 bg-[#141418]">
           <div className="min-w-0 pr-8">

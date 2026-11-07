@@ -19,12 +19,16 @@ export const EVENT_WORDS: Record<CouncilEventKind, EventWords> = {
   metadata_propose: { verb: "proposed new details for" },
   metadata_approve: { verb: "approved new details for" },
   metadata_reject: { verb: "rejected new details for" },
+  flag_remove: { verb: "voted to remove" },
+  flag_keep: { verb: "kept" },
   bookmark: { verb: "bookmarked" },
   release: { verb: "released" },
   member_add: { verb: "added", after: "to the council" },
   member_remove: { verb: "removed", after: "from the council" },
   applicant_approve: { verb: "approved applicant" },
   applicant_reject: { verb: "turned down applicant" },
+  vote_strike: { verb: "discounted fake votes for", tone: "reject" },
+  vote_strike_undo: { verb: "restored the votes for" },
 }
 
 const DAY_MS = 86_400_000
@@ -51,7 +55,8 @@ export function groupByDay(events: CouncilEvent[], now: number): { label: string
   return groups
 }
 
-export function canUndo(event: CouncilEvent, meKeyId: string, now: number): boolean {
+export function canUndo(event: CouncilEvent, meKeyId: string, now: number, isAdmin = false): boolean {
+  if (event.kind === "vote_strike") return isAdmin && !event.undone && event.active && event.refId !== null
   return (
     (event.kind === "seal" || event.kind === "reject") &&
     event.actor?.keyId === meKeyId &&

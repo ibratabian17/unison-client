@@ -1,10 +1,10 @@
+import { resolveAssetUrl } from "@/lib/badge-view"
 import { useQuery } from "@tanstack/react-query"
 import type { ReactNode } from "react"
 import { LeaderboardSection, SeeAllLink } from "@/components/LeaderboardSection"
 import { SealedTile, SealedTileSkeleton } from "@/components/SealedTile"
 import { skeletonKeys } from "@/components/skeleton"
 import { fetchSealed } from "@/lib/api"
-import { resolveAssetUrl } from "@/lib/badge-view"
 
 const SHELF_LIMIT = 12
 

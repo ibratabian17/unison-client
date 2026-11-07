@@ -1,13 +1,13 @@
+import { resolveAssetUrl } from "@/lib/badge-view"
 import { useInfiniteQuery } from "@tanstack/react-query"
 import { MotionConfig, motion } from "motion/react"
 import { useMemo, useRef } from "react"
 import { useSearchParams } from "react-router-dom"
 import { EmptyState } from "@/components/EmptyState"
-import { SYNC_LABEL, SealedTile, SealedTileSkeleton } from "@/components/SealedTile"
+import { SealedTile, SealedTileSkeleton } from "@/components/SealedTile"
 import { Segmented } from "@/components/council/Segmented"
 import { Bone, skeletonKeys } from "@/components/skeleton"
 import { buttonClass } from "@/components/ui"
-import { resolveAssetUrl } from "@/lib/badge-view"
 import { fetchSealed } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { EASE_OUT, thudFrom, thudTransition } from "@/lib/motion-variants"
@@ -28,8 +28,8 @@ type SyncChoice = SealedSyncFilter | "all"
 
 const SYNC_OPTIONS: { value: SyncChoice; label: string }[] = [
   { value: "all", label: "All" },
-  { value: "richsync", label: SYNC_LABEL.richsync },
-  { value: "linesync", label: SYNC_LABEL.linesync },
+  { value: "richsync", label: "Syllable or word" },
+  { value: "linesync", label: "Line" },
 ]
 
 const SORT_OPTIONS: { value: SealedSort; label: string }[] = [
@@ -139,7 +139,7 @@ export function SealedPage() {
 
         {isPending ? (
           <div data-testid="sealed-grid" className={GRID}>
-            {skeletonKeys("sealed-card", 10).map((key) => (
+            {skeletonKeys("sealed-card", PAGE_LIMIT).map((key) => (
               <SealedTileSkeleton key={key} variant="card" />
             ))}
           </div>

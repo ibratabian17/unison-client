@@ -1,3 +1,5 @@
+import { popoverSurfaceClass } from "@/components/ui"
+import { useUiMode } from "@/context/UiModeContext"
 import { useEffect, useRef, useState } from "react"
 import { IconClock, IconLoader2, IconSearch, IconX } from "@tabler/icons-react"
 import type { LyricsFormat, VariantFull } from "@/lib/types"
@@ -135,7 +137,7 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
           if (e.target === e.currentTarget) onClose()
         }}
       >
-        <div className="relative flex flex-col w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-[18px] bg-[#111114] border border-unison-border-strong shadow-[0_24px_60px_rgba(0,0,0,0.6)]">
+        <div className="relative flex flex-col w-full max-w-2xl max-h-[90vh] overflow-hidden rounded-[18px] bg-[#121117]/90 border border-white/12 shadow-[0_24px_60px_rgba(0,0,0,0.65)] backdrop-blur-2xl">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-unison-border/80 px-5 py-3.5 bg-[#141418]">
             <div className="min-w-0 pr-8">
@@ -164,7 +166,7 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
             {/* Apple Music Finder Trigger Bar */}
             <div className="flex items-center justify-between rounded-[9px] border border-unison-border/70 bg-[#0d0d10] px-3.5 py-2">
               <span className="text-[12px] text-unison-text-secondary">
-                Auto-fill track details from Apple Music:
+                Resolve track metadata & ISRC via BiniLink:
               </span>
               <button
                 type="button"
@@ -172,7 +174,7 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
                 className="inline-flex items-center gap-1.5 rounded-[7px] border border-unison-border bg-unison-surface px-2.5 py-1 text-[11.5px] font-medium text-unison-text hover:bg-unison-bg-hover transition-colors cursor-pointer"
               >
                 <IconSearch className="size-3 text-unison-text-muted" />
-                <span>Search Apple Music</span>
+                <span>Match via BiniLink</span>
               </button>
             </div>
 
@@ -326,7 +328,7 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
 
       <MetadataFinderModal
         isOpen={finderOpen}
-        initialQuery={[song, artist].filter(Boolean).join(" ")}
+        initialQuery={isrc || variant.videoId}
         onClose={() => setFinderOpen(false)}
         onSelect={handleMetadataSelect}
       />

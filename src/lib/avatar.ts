@@ -21,7 +21,11 @@ export function resolveAvatar({ avatarUrl, keyId }: { avatarUrl?: string | null;
       return `https://unison.betterlyrics.org${avatarUrl}`
     }
     if (avatarUrl.startsWith("/")) {
-      const base = import.meta.env.BASE_URL || "./"
+      const rawBase = import.meta.env.BASE_URL || "/"
+      const base =
+        rawBase === "./" && typeof window !== "undefined" && !window.location.hostname.endsWith(".github.io")
+          ? "/"
+          : rawBase
       const cleanBase = base.endsWith("/") ? base : `${base}/`
       return `${cleanBase}${avatarUrl.slice(1)}`
     }

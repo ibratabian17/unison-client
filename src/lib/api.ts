@@ -3,8 +3,16 @@ import { loadStoredSession } from "./auth"
 import { signPayload } from "./browser-identity"
 import { AUTHED_FETCH_ERRORS, authedFetch } from "./authedFetch"
 import { IS_SPA_EXPANSION_SEED } from "./seed-flag"
+import type { ReportReason } from "./report-reasons"
 import type {
   ApiEnvelope,
+  FeedEntry,
+  Page,
+  ProfileSettings,
+  SealedSort,
+  SealedSyncFilter,
+  SubmissionSort,
+  SubmissionSyncType,
   AvatarCatalogue,
   AvatarChoice,
   BadgeCatalogue,
@@ -92,6 +100,16 @@ export async function putAvatar(choice: AvatarChoice): Promise<{ avatarUrl: stri
     method: "PUT",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(choice),
+  })
+}
+
+
+export async function putProfileSettings(change: Partial<ProfileSettings>): Promise<ProfileSettings> {
+  if (IS_SPA_EXPANSION_SEED) return (await import("./dev-seed")).seedSetProfileSettings(change)
+  return authedFetch<ProfileSettings>("/users/me/profile", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(change),
   })
 }
 
@@ -212,10 +230,20 @@ export async function unvoteVariant(id: number): Promise<void> {
 
 export async function reportVariant(
   id: number,
-  reason: "wrong_song" | "bad_sync" | "offensive" | "spam" | "other",
+  reason: ReportReason,
   details?: string,
 ): Promise<void> {
   if (IS_SPA_EXPANSION_SEED) return (await import("./dev-seed-spa-expansion")).seedReport(id, reason, details)
+  const session = loadStoredSession()
+  if (session?.sessionToken) {
+    const body = details !== undefined ? { reason, details } : { reason }
+    await authedFetch<unknown>(`/lyrics/${id}/report`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    })
+    return
+  }
   const data: Record<string, unknown> = { reason }
   if (details) data.details = details
   const signed = await signPayload(data)
@@ -252,6 +280,18 @@ export async function fetchSealed(opts: {
   if (opts.syncType) search.set("syncType", opts.syncType)
   if (opts.cursor) search.set("cursor", opts.cursor)
   return getPage<import("./types").FeedEntry>(resolveApiPath(`/feed?${search.toString()}`), opts.signal)
+}
+
+
+export type FeedGridSort = "newest" | "top-rated"
+
+export async function fetchFeedGrid(opts: {
+  sort: FeedGridSort
+  limit: number
+  signal?: AbortSignal
+}): Promise<Page<FeedEntry>> {
+  const search = new URLSearchParams({ sort: opts.sort, limit: String(opts.limit) })
+  return getPage<FeedEntry>(resolveApiPath(`/feed?${search.toString()}`), opts.signal)
 }
 
 async function getPage<T>(path: string, signal?: AbortSignal): Promise<import("./types").Page<T>> {
@@ -308,7 +348,12 @@ export async function fetchMySubmissions(
   const params = new URLSearchParams()
   if (cursor !== undefined) params.set("cursor", String(cursor))
   params.set("limit", "20")
-  if (filters?.sort && filters.sort !== "newest") params.set("sort", filters.sort)
+  if (filters?.sort && filters.sort !== "default" && filters.sort !== "newest") params.set("sort", filters.sort)
+  if (filters?.sortDir && filters.sortDir !== "desc") params.set("sortDir", filters.sortDir)
+  if (filters?.syncType && filters.syncType !== "all") params.set("syncType", filters.syncType)
+  if (filters?.tier && filters.tier !== "all") params.set("tier", filters.tier)
+  if (filters?.format && filters.format !== "all") params.set("format", filters.format)
+  if (filters?.language && filters.language !== "all") params.set("language", filters.language)
 
   const session = loadStoredSession()
   if (!session) throw new Error("AUTH_REQUIRED")
@@ -672,3 +717,53 @@ export async function fetchSuggestedVideos(lyricId: number): Promise<{ suggestio
 }
 
 
+
+
+export interface LyricsLookupParams {
+  v?: string
+  song?: string
+  artist?: string
+  album?: string
+  duration?: number
+  isrc?: string
+  spotify?: string
+  apple_music?: string
+  tidal?: string
+  signal?: AbortSignal
+}
+
+export async function lookupLyrics(params: LyricsLookupParams): Promise<VariantFull & { matchedBy?: string }> {
+  const search = new URLSearchParams()
+  if (params.v) search.set("v", params.v)
+  if (params.song) search.set("song", params.song)
+  if (params.artist) search.set("artist", params.artist)
+  if (params.album) search.set("album", params.album)
+  if (params.duration !== undefined) search.set("duration", String(Math.round(params.duration)))
+  if (params.isrc) search.set("isrc", params.isrc)
+  if (params.spotify) search.set("spotify", params.spotify)
+  if (params.apple_music) search.set("apple_music", params.apple_music)
+  if (params.tidal) search.set("tidal", params.tidal)
+  return getJsonWithSignal<VariantFull & { matchedBy?: string }>(`/lyrics?${search.toString()}`, params.signal)
+}
+
+export async function requestLyrics(input: {
+  videoId: string
+  song: string
+  artist: string
+  thumbnailUrl?: string
+  album?: string
+  duration?: number
+}): Promise<{ status?: string; requestCount?: number; demand?: number }> {
+  const signed = await signPayload(input as unknown as Record<string, unknown>)
+  const res = await fetch(resolveApiPath("/requests"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(signed),
+  })
+  if (!res.ok) {
+    const errJson = await res.json().catch(() => null)
+    throw new Error(errJson?.hint ?? errJson?.error ?? `HTTP ${res.status}`)
+  }
+  const json = await res.json()
+  return json.data ?? { requestCount: 1, demand: 1 }
+}

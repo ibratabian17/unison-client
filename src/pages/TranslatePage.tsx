@@ -10,6 +10,8 @@ import {
   IconDownload,
   IconTrash,
 } from "@tabler/icons-react"
+import { chipClass, glassClass, raisedChipClass } from "@/components/ui"
+import { useUiMode } from "@/context/UiModeContext"
 import { cn } from "@/lib/cn"
 import {
   TRANSLATE_LANGUAGES,
@@ -108,6 +110,8 @@ function secondsToLrcTimestamp(sec: number): string {
 }
 
 export function TranslatePage() {
+  const { uiMode } = useUiMode()
+  const isNew = uiMode === "new"
   const [searchParams] = useSearchParams()
   const location = useLocation()
 
@@ -483,7 +487,7 @@ export function TranslatePage() {
       </div>
 
       {/* Language Bar & Action Controls */}
-      <div className="flex items-center justify-between gap-3 p-2.5 rounded-lg border border-unison-border bg-unison-bg-elevated flex-wrap">
+      <div className={cn("flex items-center justify-between gap-3 p-3 rounded-2xl flex-wrap", isNew ? glassClass : "border border-unison-border bg-unison-bg-elevated")}>
         <div className="flex items-center gap-2 flex-wrap min-w-0">
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="text-xs font-semibold text-unison-text-secondary whitespace-nowrap">From</span>
@@ -562,7 +566,7 @@ export function TranslatePage() {
             type="button"
             disabled={loading || !inputText.trim()}
             onClick={() => handleTranslate()}
-            className="flex items-center justify-center gap-1.5 rounded-md bg-white/[0.08] px-3 py-1.5 text-xs font-semibold text-unison-text shadow-[0_1px_2px_rgba(0,0,0,0.4),inset_0_1px_0_0_rgba(255,255,255,0.07)] transition-colors hover:bg-white/[0.12] active:translate-y-px disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            className={isNew ? cn(raisedChipClass, "disabled:opacity-40") : "flex items-center justify-center gap-1.5 rounded-md bg-white/[0.08] px-3 py-1.5 text-xs font-semibold text-unison-text shadow-[0_1px_2px_rgba(0,0,0,0.4),inset_0_1px_0_0_rgba(255,255,255,0.07)] transition-colors hover:bg-white/[0.12] active:translate-y-px disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"}
           >
             {loading ? (
               <IconLoader2 className="size-3.5 animate-spin" />
@@ -590,7 +594,7 @@ export function TranslatePage() {
       {/* Main Dual-Pane Grid */}
       <div className="grid gap-4 sm:grid-cols-2 min-w-0">
         {/* Left Pane: Source */}
-        <div className="overflow-hidden rounded-lg border border-unison-border bg-unison-bg-elevated flex flex-col min-w-0">
+        <div className={cn("overflow-hidden rounded-2xl flex flex-col min-w-0", isNew ? glassClass : "border border-unison-border bg-unison-bg-elevated")}>
           {/* Header */}
           <div className="flex items-center justify-between border-b border-unison-border/60 px-3 py-2">
             <div className="flex items-center gap-2">
@@ -621,7 +625,7 @@ export function TranslatePage() {
         </div>
 
         {/* Right Pane: Translation Output */}
-        <div className="overflow-hidden rounded-lg border border-unison-border bg-unison-bg-elevated flex flex-col min-w-0">
+        <div className={cn("overflow-hidden rounded-2xl flex flex-col min-w-0", isNew ? glassClass : "border border-unison-border bg-unison-bg-elevated")}>
           {/* Toolbar Header */}
           <div className="flex items-center justify-between border-b border-unison-border/60 px-3 py-2 flex-wrap gap-2 min-h-[41px]">
             {/* Mode Toggle */}

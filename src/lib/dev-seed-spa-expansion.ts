@@ -1,3 +1,4 @@
+import type { ReportReason } from "./report-reasons"
 import type {
   FeedEntry,
   LyricsFormat,
@@ -738,6 +739,7 @@ function sealedEntries(): FeedEntry[] {
       videoId: v.videoId,
       song: v.song,
       artist: v.artist,
+      format: v.format,
       syncType: v.syncType,
       createdAt: seal.at ?? now,
       marks: [seal, ...(v.marks ?? []).filter((m) => m.type !== "seal")],
@@ -827,7 +829,7 @@ export async function seedUnvote(id: number): Promise<void> {
 
 export async function seedReport(
   id: number,
-  _reason: "wrong_song" | "bad_sync" | "offensive" | "spam" | "other",
+  _reason: ReportReason,
   _details?: string,
 ): Promise<void> {
   await delay(200)

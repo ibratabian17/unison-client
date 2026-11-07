@@ -1,8 +1,11 @@
 import { Bone, skeletonKeys } from "@/components/skeleton"
+import { SyncTag } from "@/components/SyncTag"
+import { UserAvatar } from "@/components/UserAvatar"
+import { useUiMode } from "@/context/UiModeContext"
 import { cn } from "@/lib/cn"
 import { formatRank } from "@/lib/format"
+import { syncTypeFor } from "@/lib/sync-type"
 import type { VariantSummary } from "@/lib/types"
-import { VariantBadge } from "./VariantBadge"
 
 interface VariantListProps {
   variants: VariantSummary[]
@@ -11,10 +14,69 @@ interface VariantListProps {
 }
 
 export function VariantList({ variants, selectedId, onSelect }: VariantListProps) {
+  const { uiMode } = useUiMode()
+  const isClassic = uiMode === "classic"
+
+  if (isClassic) {
+    return (
+      <div className="space-y-2">
+        <div className="text-xs font-semibold uppercase tracking-wider text-unison-text-muted">
+          {variants.length === 1 ? "1 Version" : `${variants.length} Versions`}
+        </div>
+        <ul className="flex flex-col gap-1.5">
+          {variants.map((variant, index) => {
+            const isSelected = variant.id === selectedId
+            const submitter = variant.submitter
+            return (
+              <li key={variant.id}>
+                <button
+                  type="button"
+                  aria-current={isSelected ? "true" : undefined}
+                  onClick={() => onSelect(variant.id)}
+                  className={cn(
+                    "grid w-full cursor-pointer grid-cols-[22px_32px_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors",
+                    isSelected
+                      ? "border-unison-border-strong bg-unison-bg-elevated shadow-inset-rim"
+                      : "border-unison-border bg-white/[0.02] hover:bg-unison-bg-hover",
+                  )}
+                >
+                  <span className="font-mono text-xs tabular-nums text-unison-text-muted">{formatRank(index + 1)}</span>
+                  {submitter ? (
+                    <UserAvatar
+                      avatarUrl={submitter.avatarUrl}
+                      keyId={submitter.keyId}
+                      loading="lazy"
+                      className="size-8 rounded-full object-cover border border-unison-border"
+                    />
+                  ) : (
+                    <span className="size-8 rounded-full bg-white/[0.08]" />
+                  )}
+                  <span className="min-w-0">
+                    <span className="block truncate text-[13px] font-bold">{submitter?.displayName ?? "Anonymous"}</span>
+                    <SyncTag kind={syncTypeFor(variant.syncType, variant.format)} className="mt-0.5 text-xs" />
+                  </span>
+                  <span className="text-right">
+                    <span className="block font-mono text-[13px] font-bold tabular-nums">
+                      {variant.effectiveScore.toFixed(1)}
+                    </span>
+                    <span className="font-mono text-[10px] uppercase tracking-[0.04em] text-unison-text-muted">
+                      {`${variant.voteCount} votes`}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      </div>
+    )
+  }
+
   return (
-    <ul className="space-y-2">
+    <ul className="flex flex-col gap-1">
       {variants.map((variant, index) => {
         const isSelected = variant.id === selectedId
+        const submitter = variant.submitter
         return (
           <li key={variant.id}>
             <button
@@ -22,25 +84,36 @@ export function VariantList({ variants, selectedId, onSelect }: VariantListProps
               aria-current={isSelected ? "true" : undefined}
               onClick={() => onSelect(variant.id)}
               className={cn(
-                "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors",
+                "-mx-3 grid w-[calc(100%+1.5rem)] cursor-pointer grid-cols-[22px_32px_minmax(0,1fr)_auto] items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition-colors duration-150 ease-[cubic-bezier(0.2,0,0,1)]",
                 "focus:outline-none focus-visible:ring-2 focus-visible:ring-unison-border-strong",
-                isSelected ? "bg-unison-bg-hover" : "bg-white/[0.02] hover:bg-unison-bg-hover",
+                isSelected
+                  ? "bg-white/[0.14] shadow-[inset_0_1px_0_rgba(255,255,255,0.1),inset_0_0_0_1px_rgba(255,255,255,0.06)]"
+                  : "hover:bg-white/[0.08]",
               )}
             >
-              <span className="shrink-0 font-mono text-xs tabular-nums text-unison-text-muted">
-                {formatRank(index + 1)}
+              <span className="font-mono text-xs tabular-nums text-(--ink-3)">{formatRank(index + 1)}</span>
+              {submitter ? (
+                <UserAvatar
+                  avatarUrl={submitter.avatarUrl}
+                  keyId={submitter.keyId}
+                  loading="lazy"
+                  className="size-8 rounded-full object-cover outline outline-1 -outline-offset-1 outline-white/10"
+                />
+              ) : (
+                <span className="size-8 rounded-full bg-white/[0.08]" />
+              )}
+              <span className="min-w-0">
+                <span className="block truncate text-[13px] font-bold">{submitter?.displayName ?? "Anonymous"}</span>
+                <SyncTag kind={syncTypeFor(variant.syncType, variant.format)} className="mt-0.5 text-xs" />
               </span>
-              <div className="flex min-w-0 flex-1 items-center">
-                <VariantBadge format={variant.format} syncType={variant.syncType} />
-              </div>
-              <div className="flex shrink-0 flex-col items-end">
-                <span className="font-mono text-sm tabular-nums text-unison-text">
+              <span className="text-right">
+                <span className="block font-mono text-[13px] font-bold tabular-nums">
                   {variant.effectiveScore.toFixed(1)}
                 </span>
-                <span className="font-mono text-[10px] uppercase tracking-wider text-unison-text-muted">
+                <span className="font-mono text-[10px] uppercase tracking-[0.04em] text-(--ink-3)">
                   {`${variant.voteCount} votes`}
                 </span>
-              </div>
+              </span>
             </button>
           </li>
         )
@@ -49,18 +122,20 @@ export function VariantList({ variants, selectedId, onSelect }: VariantListProps
   )
 }
 
-export function VariantListSkeleton({ rows = 4 }: { rows?: number }) {
+export function VariantListSkeleton({ rows = 3 }: { rows?: number }) {
   return (
-    <ul className="space-y-2">
-      {skeletonKeys("variant-skeleton", rows).map((key) => (
-        <li key={key}>
-          <div className="flex w-full items-center gap-3 rounded-lg bg-white/[0.02] px-3 py-2">
-            <Bone className="h-3.5 w-4 shrink-0" />
-            <Bone className="h-[18px] w-24" />
-            <div className="ml-auto flex flex-col items-end gap-1">
-              <Bone className="h-4 w-8" />
-              <Bone className="h-2.5 w-12" />
-            </div>
+    <ul className="flex flex-col gap-1.5">
+      {skeletonKeys("variant-list", rows).map((key) => (
+        <li key={key} className="grid grid-cols-[22px_32px_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-unison-border bg-unison-bg-elevated px-3 py-2.5">
+          <Bone className="h-3 w-4" />
+          <Bone className="size-8 rounded-full" />
+          <div className="space-y-1.5">
+            <Bone className="h-3.5 w-28" />
+            <Bone className="h-3 w-16" />
+          </div>
+          <div className="space-y-1.5 text-right">
+            <Bone className="ml-auto h-3.5 w-10" />
+            <Bone className="ml-auto h-2.5 w-12" />
           </div>
         </li>
       ))}

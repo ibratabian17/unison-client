@@ -125,6 +125,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           displayName: session.displayName,
           expiresAt: session.expiresAt,
           avatarUrl: session.avatarUrl,
+          council: session.council ?? null,
         },
       })
     } catch (err) {

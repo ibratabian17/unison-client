@@ -1,12 +1,18 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import { useSession } from "@/auth/useSession"
 import { submitLyrics } from "@/lib/api"
 import { fetchVideoMetadata } from "@/lib/video-metadata"
 import { getLanguageOptions, detectLyricsLanguage } from "@/lib/languages"
 import { parseAndValidateLyrics, detectFormat } from "@/lib/lyrics-parser"
 import { useYouTubePlayer } from "@/hooks/useYouTubePlayer"
+import { CoverImage } from "@/components/AlbumArt"
 import { LyricsRenderer } from "@/components/LyricsRenderer"
+import { usePageArt } from "@/components/PageArt"
+import { chipClass, chipIconClass, glassClass, raisedChipClass } from "@/components/ui"
+import { useUiMode } from "@/context/UiModeContext"
+import { songBackdrop, useArtwork } from "@/lib/artwork"
+import { cn } from "@/lib/cn"
 import {
   IconSend,
   IconLoader2,
@@ -21,10 +27,14 @@ import {
   IconSearch,
 } from "@tabler/icons-react"
 import { MetadataFinderModal, type SelectedMetadata } from "@/components/MetadataFinderModal"
-import { searchAppleMusic } from "@/lib/apple-music"
+import { matchYouTubeViaBiniLink, resolveIsrcWithMetadata } from "@/lib/binilink"
 import type { LyricsFormat, VariantFull } from "@/lib/types"
 
+import { videoIdFromInput } from "@/lib/youtube-music"
+
 function extractVideoId(input: string): string {
+  const parsed = videoIdFromInput(input)
+  if (parsed) return parsed
   const trimmed = input.trim()
   if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) return trimmed
   const urlMatch = trimmed.match(/(?:v=|\/embed\/|\.be\/|\/v\/|watch\?v=|\/shorts\/)([a-zA-Z0-9_-]{11})/)
@@ -32,22 +42,29 @@ function extractVideoId(input: string): string {
 }
 
 export function SubmitPage() {
+  const { uiMode } = useUiMode()
+  const isNew = uiMode === "new"
   const session = useSession()
   const signedIn = session.status === "signed-in"
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
 
-  const [song, setSong] = useState("")
-  const [artist, setArtist] = useState("")
-  const [album, setAlbum] = useState("")
-  const [duration, setDuration] = useState<number | "">("")
-  const [videoIdInput, setVideoIdInput] = useState("")
-  const [isrc, setIsrc] = useState("")
+  const [song, setSong] = useState(() => searchParams.get("song") ?? "")
+  const [artist, setArtist] = useState(() => searchParams.get("artist") ?? "")
+  const [album, setAlbum] = useState(() => searchParams.get("album") ?? "")
+  const [duration, setDuration] = useState<number | "">(() => {
+    const d = searchParams.get("duration")
+    return d && Number.isFinite(Number(d)) ? Math.round(Number(d)) : ""
+  })
+  const [videoIdInput, setVideoIdInput] = useState(() => searchParams.get("videoId") ?? searchParams.get("v") ?? "")
+  const [isrc, setIsrc] = useState(() => searchParams.get("isrc") ?? "")
+
   const [language, setLanguage] = useState("en")
   const [formatChoice, setFormatChoice] = useState<LyricsFormat | "auto">("auto")
   const [lyricsText, setLyricsText] = useState("")
   const [finderOpen, setFinderOpen] = useState(false)
   const [fetchingMetadata, setFetchingMetadata] = useState(false)
-  const [matchedAppleTrack, setMatchedAppleTrack] = useState<string | null>(null)
+  const [matchedBiniLinkTrack, setMatchedBiniLinkTrack] = useState<string | null>(null)
   const hasInitializedDurationRef = useRef(false)
 
   const [isDragOver, setIsDragOver] = useState(false)
@@ -96,14 +113,30 @@ export function SubmitPage() {
     return () => clearInterval(timer)
   }, [getPlaying, getDuration])
 
-  // Auto-fetch metadata from YouTube and match with Apple Music
+  const { data: art, isPending: artPending } = useArtwork(isValidVideoId ? cleanVideoId : "")
+  const backdrop = useMemo(
+    () =>
+      !isValidVideoId || artPending
+        ? null
+        : songBackdrop(cleanVideoId, Boolean(art), song || "Track Preview", artist || "Artist"),
+    [isValidVideoId, artPending, cleanVideoId, art, song, artist],
+  )
+  usePageArt(backdrop, isPlaying)
+
+  const inputClass = cn(
+    "w-full rounded-xl px-3 py-2 text-xs text-unison-text placeholder:text-unison-text-muted focus:outline-none",
+    isNew
+      ? "border border-white/10 bg-white/[0.04] focus:border-white/30"
+      : "border border-unison-border bg-unison-bg-elevated focus:border-unison-border-strong",
+  )
+
+  // Auto-match metadata via BiniLink (https://link.binimum.org), with YouTube oEmbed fallback
   useEffect(() => {
     if (!isValidVideoId) {
-      setMatchedAppleTrack(null)
+      setMatchedBiniLinkTrack(null)
       return
     }
 
-    // If user or uploaded file already filled song and artist, do not auto-match Apple Music
     if (song.trim() && artist.trim()) {
       return
     }
@@ -111,47 +144,54 @@ export function SubmitPage() {
     let cancelled = false
     setFetchingMetadata(true)
 
-    fetchVideoMetadata(cleanVideoId)
-      .then(async (ytMeta) => {
-        if (cancelled || !ytMeta) return
-        const ytSong = ytMeta.song || ""
-        const ytArtist = ytMeta.artist || ""
-
-        // If metadata was already provided, skip
-        if (song.trim() && artist.trim()) return
-
-        // Set baseline from YT
-        setSong((prev) => (prev ? prev : ytSong))
-        setArtist((prev) => (prev ? prev : ytArtist))
-
-        // Search Apple Music catalog with YouTube title & artist
-        const searchQuery = [ytSong, ytArtist].filter(Boolean).join(" ")
-        if (searchQuery) {
-          try {
-            const appleResults = await searchAppleMusic(searchQuery)
-            if (cancelled) return
-
-            if (appleResults && appleResults.length > 0) {
-              const bestMatch = appleResults[0].attributes
-              setSong(bestMatch.name)
-              setArtist(bestMatch.artistName)
-              if (bestMatch.albumName) setAlbum(bestMatch.albumName)
-              if (bestMatch.isrc) setIsrc(bestMatch.isrc)
-              setMatchedAppleTrack(`${bestMatch.name} · ${bestMatch.artistName}`)
-            }
-          } catch (e) {
-            console.error("Apple Music auto-match error:", e)
-          }
+    ;(async () => {
+      try {
+        const biniMatch = await matchYouTubeViaBiniLink(cleanVideoId)
+        if (cancelled) return
+        if (biniMatch && (biniMatch.song || biniMatch.isrc)) {
+          if (biniMatch.song) setSong((prev) => prev || biniMatch.song)
+          if (biniMatch.artist) setArtist((prev) => prev || biniMatch.artist)
+          if (biniMatch.album) setAlbum((prev) => prev || biniMatch.album!)
+          if (biniMatch.duration) setDuration((prev) => (prev === "" ? biniMatch.duration! : prev))
+          if (biniMatch.isrc) setIsrc((prev) => prev || biniMatch.isrc!)
+          const label = [biniMatch.song, biniMatch.artist].filter(Boolean).join(" · ")
+          setMatchedBiniLinkTrack(biniMatch.isrc ? `${label} (${biniMatch.isrc})` : label)
+          return
         }
-      })
-      .finally(() => {
+
+        const ytMeta = await fetchVideoMetadata(cleanVideoId)
+        if (cancelled || !ytMeta) return
+        if (ytMeta.song) setSong((prev) => prev || ytMeta.song)
+        if (ytMeta.artist) setArtist((prev) => prev || ytMeta.artist)
+      } finally {
         if (!cancelled) setFetchingMetadata(false)
-      })
+      }
+    })()
 
     return () => {
       cancelled = true
     }
   }, [cleanVideoId, isValidVideoId])
+
+  // Also auto-resolve metadata via BiniLink when a 12-character ISRC is entered
+  useEffect(() => {
+    const clean = isrc.replace(/[-\s]/g, "").toUpperCase()
+    if (!/^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$/.test(clean)) return
+    let cancelled = false
+    resolveIsrcWithMetadata(clean).then((resolved) => {
+      if (cancelled || !resolved) return
+      if (resolved.song) setSong((prev) => prev || resolved.song)
+      if (resolved.artist) setArtist((prev) => prev || resolved.artist)
+      if (resolved.album) setAlbum((prev) => prev || resolved.album!)
+      if (resolved.duration) setDuration((prev) => (prev === "" ? resolved.duration! : prev))
+      if (resolved.youtubeId) setVideoIdInput((prev) => prev || resolved.youtubeId!)
+      const label = [resolved.song, resolved.artist].filter(Boolean).join(" · ")
+      if (label) setMatchedBiniLinkTrack(`${label} (${clean})`)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [isrc])
 
   // Auto-detect language from lyrics
   useEffect(() => {
@@ -294,13 +334,17 @@ export function SubmitPage() {
     if (meta.song) setSong(meta.song)
     if (meta.artist) setArtist(meta.artist)
     if (meta.album) setAlbum(meta.album)
+    if (meta.duration) setDuration(meta.duration)
     if (meta.isrc) setIsrc(meta.isrc)
+    if (meta.youtubeId && !videoIdInput.trim()) setVideoIdInput(meta.youtubeId)
+    const label = [meta.song, meta.artist].filter(Boolean).join(" · ")
+    if (label) setMatchedBiniLinkTrack(meta.isrc ? `${label} (${meta.isrc})` : label)
   }
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-unison-border pb-4 gap-2">
+      <div className={cn("flex flex-col sm:flex-row sm:items-center sm:justify-between pb-4 gap-2", isNew ? "border-b border-white/10" : "border-b border-unison-border")}>
         <div>
           <h1 className="text-xl font-bold text-unison-text">Submit Lyrics</h1>
           <p className="text-xs text-unison-text-secondary mt-0.5">
@@ -320,7 +364,7 @@ export function SubmitPage() {
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-unison-border bg-unison-bg-elevated px-3 py-1.5 text-xs font-medium text-unison-text transition-colors hover:border-unison-border-strong hover:bg-unison-bg-hover cursor-pointer"
+            className={isNew ? chipClass : "inline-flex items-center gap-1.5 rounded-lg border border-unison-border bg-unison-bg-elevated px-3 py-1.5 text-xs font-medium text-unison-text transition-colors hover:border-unison-border-strong hover:bg-unison-bg-hover cursor-pointer"}
           >
             <IconUpload className="size-3.5 text-unison-text-secondary" />
             <span>Upload File (.lrc / .ttml / .txt)</span>
@@ -330,7 +374,7 @@ export function SubmitPage() {
 
       <MetadataFinderModal
         isOpen={finderOpen}
-        initialQuery={[song, artist].filter(Boolean).join(" ")}
+        initialQuery={isrc || cleanVideoId}
         onClose={() => setFinderOpen(false)}
         onSelect={handleMetadataSelect}
       />
@@ -339,7 +383,7 @@ export function SubmitPage() {
         {/* Left Form: Fields & Lyrics Textarea (7 cols) */}
         <div className="lg:col-span-7 space-y-3.5">
           {/* 1. YouTube Video / Audio Track (Top Field) */}
-          <div className="rounded-xl border border-unison-border bg-unison-bg-elevated p-3.5 space-y-2">
+          <div className={cn("rounded-2xl p-4 space-y-2.5", isNew ? glassClass : "border border-unison-border bg-unison-bg-elevated")}>
             <div className="flex items-center justify-between">
               <span className="text-xs font-semibold text-unison-text flex items-center gap-1.5">
                 YouTube Video or Audio URL / ID <span className="text-red-500">*</span>
@@ -357,15 +401,15 @@ export function SubmitPage() {
               value={videoIdInput}
               onChange={(e) => setVideoIdInput(e.target.value)}
               placeholder="Paste YouTube or YouTube Music URL, or 11-character video ID..."
-              className="w-full font-mono rounded-lg border border-unison-border bg-unison-bg px-3 py-2 text-xs text-unison-text placeholder:text-unison-text-muted focus:border-unison-border-strong focus:outline-none"
+              className={cn(inputClass, "font-mono")}
             />
 
             {/* Auto-match status banner / helper */}
-            {matchedAppleTrack ? (
+            {matchedBiniLinkTrack ? (
               <div className="flex items-center justify-between rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 text-[11px] text-emerald-300">
                 <div className="flex items-center gap-1.5 truncate">
                   <IconCheck className="size-3.5 shrink-0 text-emerald-400" />
-                  <span className="truncate">Auto-matched with Apple Music: <strong>{matchedAppleTrack}</strong></span>
+                  <span className="truncate">Auto-matched via BiniLink: <strong>{matchedBiniLinkTrack}</strong></span>
                 </div>
                 <button
                   type="button"
@@ -384,7 +428,7 @@ export function SubmitPage() {
                   className="text-unison-text-secondary hover:text-unison-text flex items-center gap-1 cursor-pointer transition-colors"
                 >
                   <IconSearch className="size-3" />
-                  <span>Match Apple Music</span>
+                  <span>Match via BiniLink</span>
                 </button>
               </div>
             ) : null}
@@ -401,7 +445,7 @@ export function SubmitPage() {
                 value={song}
                 onChange={(e) => setSong(e.target.value)}
                 placeholder="Song title"
-                className="w-full rounded-lg border border-unison-border bg-unison-bg-elevated px-3 py-2 text-xs text-unison-text placeholder:text-unison-text-muted focus:border-unison-border-strong focus:outline-none"
+                className={inputClass}
               />
             </label>
 
@@ -415,7 +459,7 @@ export function SubmitPage() {
                 value={artist}
                 onChange={(e) => setArtist(e.target.value)}
                 placeholder="Artist name"
-                className="w-full rounded-lg border border-unison-border bg-unison-bg-elevated px-3 py-2 text-xs text-unison-text placeholder:text-unison-text-muted focus:border-unison-border-strong focus:outline-none"
+                className={inputClass}
               />
             </label>
           </div>
@@ -428,7 +472,7 @@ export function SubmitPage() {
                 value={album}
                 onChange={(e) => setAlbum(e.target.value)}
                 placeholder="Album name (Optional)"
-                className="w-full rounded-lg border border-unison-border bg-unison-bg-elevated px-3 py-2 text-xs text-unison-text placeholder:text-unison-text-muted focus:border-unison-border-strong focus:outline-none"
+                className={inputClass}
               />
             </label>
 
@@ -438,7 +482,7 @@ export function SubmitPage() {
                 value={language}
                 onChange={(e) => setLanguage(e.target.value)}
                 aria-label="Language selection"
-                className="w-full rounded-lg border border-unison-border bg-unison-bg-elevated px-3 py-2 text-xs text-unison-text focus:border-unison-border-strong focus:outline-none"
+                className={inputClass}
               >
                 {languages.map((l) => (
                   <option key={l.code} value={l.code}>
@@ -462,7 +506,7 @@ export function SubmitPage() {
                 value={duration}
                 onChange={(e) => setDuration(e.target.value ? Number(e.target.value) : "")}
                 placeholder="e.g. 210"
-                className="w-full font-mono rounded-lg border border-unison-border bg-unison-bg-elevated px-3 py-2 text-xs text-unison-text placeholder:text-unison-text-muted focus:border-unison-border-strong focus:outline-none"
+                className={cn(inputClass, "font-mono")}
               />
             </label>
 
@@ -475,7 +519,7 @@ export function SubmitPage() {
                 value={isrc}
                 onChange={(e) => setIsrc(e.target.value)}
                 placeholder="e.g. USUM71607007"
-                className="w-full font-mono rounded-lg border border-unison-border bg-unison-bg-elevated px-3 py-2 text-xs text-unison-text placeholder:text-unison-text-muted focus:border-unison-border-strong focus:outline-none"
+                className={cn(inputClass, "font-mono")}
               />
             </label>
 
@@ -485,7 +529,7 @@ export function SubmitPage() {
                 value={formatChoice}
                 onChange={(e) => setFormatChoice(e.target.value as LyricsFormat | "auto")}
                 aria-label="Format selection"
-                className="w-full rounded-lg border border-unison-border bg-unison-bg-elevated px-3 py-2 text-xs text-unison-text focus:border-unison-border-strong focus:outline-none"
+                className={inputClass}
               >
                 <option value="auto">Auto ({validation.format.toUpperCase()})</option>
                 <option value="lrc">LRC</option>
@@ -520,9 +564,11 @@ export function SubmitPage() {
               onDragLeave={() => setIsDragOver(false)}
               onDrop={handleDrop}
               placeholder="Paste synced LRC, rich TTML, or plain lyrics here, or drop a .lrc / .ttml file..."
-              className={`w-full font-mono text-xs leading-relaxed rounded-lg border bg-unison-bg-elevated p-3 text-unison-text placeholder:text-unison-text-muted focus:border-unison-border-strong focus:outline-none transition-colors ${
-                isDragOver ? "border-indigo-500 bg-indigo-500/10" : "border-unison-border"
-              }`}
+              className={cn(
+                "w-full font-mono text-xs leading-relaxed rounded-2xl p-3.5 text-unison-text placeholder:text-unison-text-muted focus:outline-none transition-colors",
+                isNew ? glassClass : "border border-unison-border bg-unison-bg-elevated",
+                isDragOver && "border-indigo-500 bg-indigo-500/10",
+              )}
               spellCheck={false}
             />
           </div>
@@ -566,7 +612,7 @@ export function SubmitPage() {
               href={composerUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-unison-border bg-unison-bg-elevated px-3 py-2 text-xs text-unison-text-secondary transition-colors hover:border-unison-border-strong hover:bg-unison-bg-hover hover:text-unison-text"
+              className={isNew ? chipClass : "inline-flex items-center gap-1.5 rounded-lg border border-unison-border bg-unison-bg-elevated px-3 py-2 text-xs text-unison-text-secondary transition-colors hover:border-unison-border-strong hover:bg-unison-bg-hover hover:text-unison-text"}
             >
               <IconExternalLink className="size-3.5" />
               <span>Create in Composer</span>
@@ -575,7 +621,7 @@ export function SubmitPage() {
             <button
               type="submit"
               disabled={submitting}
-              className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-6 py-2 text-xs font-semibold text-white shadow transition-colors hover:bg-red-500 disabled:opacity-50 cursor-pointer"
+              className={isNew ? cn(raisedChipClass, "h-9 px-5 text-xs") : "inline-flex items-center gap-2 rounded-lg bg-red-600 px-6 py-2 text-xs font-semibold text-white shadow transition-colors hover:bg-red-500 disabled:opacity-50 cursor-pointer"}
             >
               {submitting ? <IconLoader2 className="size-3.5 animate-spin" /> : <IconSend className="size-3.5" />}
               Submit Lyrics
@@ -593,11 +639,15 @@ export function SubmitPage() {
           </div>
 
           {/* Sleek Compact Player & Transport Bar (Works for MV & Audio Topic Tracks) */}
-          <div className="rounded-xl border border-unison-border bg-unison-bg-elevated p-3 space-y-2.5 shadow-sm">
+          <div className={cn("rounded-2xl p-3.5 space-y-2.5", isNew ? glassClass : "border border-unison-border bg-unison-bg-elevated shadow-sm")}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 min-w-0">
-                <div className="size-7 rounded-md bg-white/5 border border-unison-border flex items-center justify-center shrink-0">
-                  <IconMusic className="size-4 text-unison-text-secondary" />
+                <div className="size-10 overflow-hidden rounded-xl border border-white/10 bg-white/5 flex items-center justify-center shrink-0">
+                  {isValidVideoId ? (
+                    <CoverImage src={art} song={song || "Track"} artist={artist || "Artist"} />
+                  ) : (
+                    <IconMusic className="size-4 text-unison-text-secondary" />
+                  )}
                 </div>
                 <div className="min-w-0">
                   <p className="text-xs font-semibold text-unison-text truncate">{song || "Track Preview"}</p>
@@ -630,7 +680,7 @@ export function SubmitPage() {
           </div>
 
           {/* Full-Height Braccato Synchronized Reader */}
-          <div className="relative flex-1 min-h-[480px] rounded-xl border border-unison-border bg-unison-bg-elevated p-4 overflow-hidden shadow-sm">
+          <div className={cn("relative flex-1 min-h-[480px] rounded-2xl p-4 overflow-hidden", isNew ? glassClass : "border border-unison-border bg-unison-bg-elevated shadow-sm")}>
             {lyricsText.trim().length === 0 ? (
               <div className="flex h-64 flex-col items-center justify-center text-unison-text-muted text-center space-y-2">
                 <IconMusic className="size-8 opacity-30" />

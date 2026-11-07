@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, readFileSync } from "node:fs";
+import { copyFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
@@ -31,13 +31,17 @@ function spa404(): Plugin {
       const notFoundFile = resolve(import.meta.dirname, "./dist/404.html");
       if (existsSync(indexFile)) {
         copyFileSync(indexFile, notFoundFile);
+        const html = readFileSync(notFoundFile, "utf8")
+          .replace(/(src|href)="\.\/assets\//g, '$1="/assets/')
+          .replace(/(src|href)="\.\/logo\.svg"/g, '$1="/logo.svg"');
+        writeFileSync(notFoundFile, html, "utf8");
       }
     },
   };
 }
 
-export default defineConfig(({ command }) => ({
-  base: command === "build" ? "./" : "/",
+export default defineConfig(() => ({
+  base: process.env.VITE_BASE_PATH || "/",
   plugins: [react(), tailwindcss(), devBadgeArt(), spa404()],
   resolve: {
     alias: {
@@ -97,6 +101,26 @@ export default defineConfig(({ command }) => ({
         changeOrigin: true,
       },
       "/exam/": {
+        target: "https://unison.betterlyrics.org",
+        changeOrigin: true,
+      },
+      "/committee": {
+        target: "https://unison.betterlyrics.org",
+        changeOrigin: true,
+      },
+      "/translate": {
+        target: "https://unison.betterlyrics.org",
+        changeOrigin: true,
+      },
+      "/og/": {
+        target: "https://unison.betterlyrics.org",
+        changeOrigin: true,
+      },
+      "/card/": {
+        target: "https://unison.betterlyrics.org",
+        changeOrigin: true,
+      },
+      "/oembed": {
         target: "https://unison.betterlyrics.org",
         changeOrigin: true,
       },

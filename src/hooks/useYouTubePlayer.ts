@@ -18,7 +18,11 @@ interface YTPlayerCtorOptions {
   width?: string | number
   height?: string | number
   playerVars?: Record<string, string | number>
-  events?: { onReady?: () => void; onStateChange?: (event: { data: number }) => void }
+  events?: {
+    onReady?: () => void
+    onStateChange?: (event: { data: number }) => void
+    onError?: (event: { data: number }) => void
+  }
 }
 
 interface YTNamespace {
@@ -89,6 +93,8 @@ export interface UseYouTubePlayerResult {
   getDuration: () => number
   getPlaying: () => boolean
   playing: boolean
+  ready: boolean
+  failed: boolean
   seekTo: (seconds: number) => void
   play: () => void
   pause: () => void
@@ -103,6 +109,8 @@ export function useYouTubePlayer(videoId: string | null, options?: UseYouTubePla
   const [node, setNode] = useState<HTMLDivElement | null>(null)
   const playerRef = useRef<YTPlayer | null>(null)
   const [playing, setPlaying] = useState(false)
+  const [failed, setFailed] = useState(false)
+  const [ready, setReady] = useState(false)
   // YT.Player methods aren't attached until onReady fires; calling one earlier
   // throws. The rAF sync loop polls every frame, so the getters must stay inert
   // until the player is ready or one throw kills the loop permanently.
@@ -137,11 +145,10 @@ export function useYouTubePlayer(videoId: string | null, options?: UseYouTubePla
         events: {
           onReady: () => {
             if (cancelled) return
+            setReady(true)
             readyRef.current = true
             const dur = player.getDuration?.() ?? 0
-            if (dur > 0) {
-              onDurationChangeRef.current?.(dur)
-            }
+            if (dur > 0) onDurationChangeRef.current?.(dur)
             if (pendingSeekRef.current !== null) {
               player.seekTo(pendingSeekRef.current, true)
               pendingSeekRef.current = null
@@ -154,11 +161,14 @@ export function useYouTubePlayer(videoId: string | null, options?: UseYouTubePla
           onStateChange: ({ data }) => {
             if (!cancelled && data !== YT_STATE_BUFFERING) {
               setPlaying(data === YT_STATE_PLAYING)
-              const dur = player.getDuration?.() ?? 0
-              if (dur > 0) {
-                onDurationChangeRef.current?.(dur)
+              if (data === YT_STATE_PLAYING) {
+                const dur = player.getDuration?.() ?? 0
+                if (dur > 0) onDurationChangeRef.current?.(dur)
               }
             }
+          },
+          onError: () => {
+            if (!cancelled) setFailed(true)
           },
         },
       })
@@ -170,6 +180,8 @@ export function useYouTubePlayer(videoId: string | null, options?: UseYouTubePla
       cancelled = true
       readyRef.current = false
       setPlaying(false)
+      setFailed(false)
+      setReady(false)
       pendingSeekRef.current = null
       pendingPlayRef.current = false
       const player = playerRef.current
@@ -205,16 +217,16 @@ export function useYouTubePlayer(videoId: string | null, options?: UseYouTubePla
     player.pauseVideo()
   }, [])
 
-  const getCurrentTime = useCallback(() => {
-    const player = playerRef.current
-    if (!player || !readyRef.current) return 0
-    return player.getCurrentTime()
-  }, [])
-
   const getDuration = useCallback(() => {
     const player = playerRef.current
     if (!player || !readyRef.current) return 0
     return player.getDuration?.() ?? 0
+  }, [])
+
+  const getCurrentTime = useCallback(() => {
+    const player = playerRef.current
+    if (!player || !readyRef.current) return 0
+    return player.getCurrentTime()
   }, [])
 
   const getPlaying = useCallback(() => {
@@ -223,5 +235,5 @@ export function useYouTubePlayer(videoId: string | null, options?: UseYouTubePla
     return player.getPlayerState() === YT_STATE_PLAYING
   }, [])
 
-  return { ref: setNode, getCurrentTime, getDuration, getPlaying, playing, seekTo, play, pause }
+  return { ref: setNode, getCurrentTime, getDuration, getPlaying, playing, ready, failed, seekTo, play, pause }
 }
