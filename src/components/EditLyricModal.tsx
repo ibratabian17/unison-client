@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { IconLoader2, IconSearch, IconX } from "@tabler/icons-react"
 import type { LyricsFormat, VariantFull } from "@/lib/types"
 import { getLanguageOptions, detectLyricsLanguage } from "@/lib/languages"
-import { parseAndValidateLyrics } from "@/lib/lyrics-parser"
+import { detectFormat, parseAndValidateLyrics } from "@/lib/lyrics-parser"
 import { previewLyricRevision, saveLyricRevision, withdrawPendingRevision, type RevisionPreviewData } from "@/lib/api"
 import { MetadataFinderModal, type SelectedMetadata } from "@/components/MetadataFinderModal"
 import { cn } from "@/lib/cn"
@@ -14,6 +14,17 @@ interface EditLyricModalProps {
   onSaved: () => void
 }
 
+function resolveActualFormat(lyricsText: string, fallback: LyricsFormat): LyricsFormat {
+  const trimmed = lyricsText.trim()
+  if (!trimmed) return fallback
+  const detected = detectFormat(trimmed)
+  // Never allow sending "ttml" when content does not have XML/TTML tags, or sending "lrc"/"plain" when content is TTML
+  if (detected === "ttml") return "ttml"
+  if (detected === "lrc") return "lrc"
+  if (fallback === "ttml" && !trimmed.startsWith("<")) return detected
+  return fallback
+}
+
 export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricModalProps) {
   const [song, setSong] = useState(variant.song)
   const [artist, setArtist] = useState(variant.artist)
@@ -21,7 +32,9 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
   const [duration, setDuration] = useState<number | "">(variant.duration ?? "")
   const [language, setLanguage] = useState(variant.language ?? "en")
   const [isrc, setIsrc] = useState(variant.isrc ?? "")
-  const [format, setFormat] = useState<LyricsFormat>(variant.format ?? "lrc")
+  const [format, setFormat] = useState<LyricsFormat>(() =>
+    resolveActualFormat(variant.lyrics, variant.format ?? "lrc"),
+  )
   const [lyrics, setLyrics] = useState(variant.lyrics)
   const [saving, setSaving] = useState(false)
   const [finderOpen, setFinderOpen] = useState(false)
@@ -34,6 +47,39 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
 
   const languages = getLanguageOptions()
 
+  // Sync state whenever the selected variant changes or the modal re-opens
+  useEffect(() => {
+    if (!isOpen) return
+    setSong(variant.song)
+    setArtist(variant.artist)
+    setAlbum(variant.album ?? "")
+    setLanguage(variant.language ?? "en")
+    setIsrc(variant.isrc ?? "")
+    setLyrics(variant.lyrics)
+    const actualFormat = resolveActualFormat(variant.lyrics, variant.format ?? "lrc")
+    setFormat(actualFormat)
+    setError(null)
+    setPreviewData(null)
+
+    if (variant.duration && variant.duration > 0) {
+      setDuration(variant.duration)
+    } else {
+      const parsed = parseAndValidateLyrics(variant.lyrics)
+      setDuration(parsed.extractedMeta.duration && parsed.extractedMeta.duration > 0 ? parsed.extractedMeta.duration : "")
+    }
+  }, [
+    isOpen,
+    variant.id,
+    variant.song,
+    variant.artist,
+    variant.album,
+    variant.duration,
+    variant.language,
+    variant.isrc,
+    variant.format,
+    variant.lyrics,
+  ])
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose()
@@ -45,17 +91,6 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
     return () => document.removeEventListener("keydown", onKey)
   }, [isOpen, onClose])
 
-  // Initial duration parse if missing
-  useEffect(() => {
-    if (!isOpen) return
-    if (!duration || duration === 0) {
-      const parsed = parseAndValidateLyrics(lyrics)
-      if (parsed.extractedMeta.duration && parsed.extractedMeta.duration > 0) {
-        setDuration(parsed.extractedMeta.duration)
-      }
-    }
-  }, [isOpen, lyrics, duration])
-
   if (!isOpen) return null
 
   const handleLyricsChange = (val: string) => {
@@ -65,6 +100,9 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
       setLanguage(detected)
     }
     const parsed = parseAndValidateLyrics(val)
+    if (val.trim()) {
+      setFormat(parsed.format)
+    }
     if (parsed.extractedMeta.duration && (!duration || duration === 0)) {
       setDuration(parsed.extractedMeta.duration)
     }
@@ -82,6 +120,11 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
       setError(null)
 
       const parsed = parseAndValidateLyrics(lyrics)
+      const effectiveFormat = resolveActualFormat(lyrics, format)
+      if (effectiveFormat !== format) {
+        setFormat(effectiveFormat)
+      }
+
       const numDur = typeof duration === "number" && duration > 0 ? duration : Number(duration)
       const resolvedDuration =
         numDur > 0
@@ -98,7 +141,7 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
         album: album.trim() || undefined,
         language: language || undefined,
         isrc: isrc.trim() || undefined,
-        format,
+        format: effectiveFormat,
         lyrics: lyrics.trim(),
       })
       onSaved()
@@ -117,11 +160,12 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
       return
     }
     let cancelled = false
+    const effectiveFormat = resolveActualFormat(lyrics, format)
     const timer = setTimeout(async () => {
       setPreviewLoading(true)
       const data = await previewLyricRevision(variant.id, {
         lyrics,
-        format,
+        format: effectiveFormat,
         song,
         artist,
         album,
@@ -208,10 +252,10 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
               </div>
             )}
 
-            {/* BiniLink Find & Match Trigger Bar */}
+            {/* BiniLink + Apple Music Search Trigger Bar */}
             <div className="flex items-center justify-between rounded-[9px] border border-unison-border/70 bg-[#0d0d10] px-3.5 py-2">
               <span className="text-[12px] text-unison-text-secondary">
-                Find song or match metadata &amp; ISRC via BiniLink:
+                Find song (Apple Music catalog) or match via BiniLink:
               </span>
               <button
                 type="button"

@@ -26,6 +26,7 @@ export interface SelectedMetadata {
   isrc?: string
   artworkUrl?: string
   youtubeId?: string
+  source?: string
 }
 
 interface MetadataFinderModalProps {
@@ -68,7 +69,6 @@ export function MetadataFinderModal({
         setError(null)
         let hits: BiniLinkResolvedTrack[] = []
         if (activeMode === "search") {
-          // lookupBiniLink("auto") handles both direct ISRCs/URLs AND free-text song/artist/album search
           hits = await lookupBiniLink(term, "auto")
           if (hits.length === 0) {
             hits = await searchSongsViaBiniLink(term)
@@ -127,6 +127,7 @@ export function MetadataFinderModal({
         isrc: enriched.isrc,
         artworkUrl: enriched.artworkUrl,
         youtubeId: enriched.youtubeId,
+        source: enriched.matchedVia || (enriched.appleMusicId ? "Apple Music" : "BiniLink"),
       })
       onClose()
     } finally {
@@ -171,10 +172,10 @@ export function MetadataFinderModal({
           <div className="flex flex-wrap gap-1">
             {(
               [
-                ["search", "Find Song (Title / Artist)"],
+                ["search", "Apple Music Catalog"],
                 ["isrc", "ISRC"],
                 ["spotify", "Spotify"],
-                ["apple_music", "Apple Music"],
+                ["apple_music", "Apple Music Link/ID"],
                 ["tidal", "Tidal"],
                 ["youtube", "YouTube"],
               ] as const
@@ -208,7 +209,7 @@ export function MetadataFinderModal({
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={
                   mode === "search"
-                    ? "Search song title, artist, album, or paste an ISRC / track link..."
+                    ? "Search song title, artist, album (Apple Music), or paste ISRC/URL..."
                     : `Paste ${mode.replace("_", " ")} ID or URL...`
                 }
                 className="w-full rounded-xl border border-white/12 bg-black/40 py-2 pr-3 pl-8 text-xs text-unison-text placeholder:text-unison-text-muted focus:border-white/30 focus:outline-none"
@@ -235,7 +236,7 @@ export function MetadataFinderModal({
             <div className="flex h-40 flex-col items-center justify-center space-y-2 text-unison-text-muted">
               <IconLoader2 className="size-5 animate-spin text-unison-text-secondary" />
               <p className="text-xs">
-                {mode === "search" ? "Searching catalog & BiniLink…" : "Resolving on link.binimum.org…"}
+                {mode === "search" ? "Searching Apple Music catalog & BiniLink…" : "Resolving on link.binimum.org…"}
               </p>
             </div>
           ) : error ? (
@@ -292,7 +293,7 @@ export function MetadataFinderModal({
                     {isResolvingThis ? (
                       <span className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/10 px-2 py-0.5 text-unison-text">
                         <IconLoader2 className="size-3 animate-spin" />
-                        Matching BiniLink…
+                        Enriching…
                       </span>
                     ) : null}
                     {item.isrc ? (
@@ -315,14 +316,7 @@ export function MetadataFinderModal({
         </div>
 
         <div className="flex items-center justify-between border-t border-white/10 bg-black/20 px-4 py-2.5 text-[11px] text-unison-text-muted">
-          <a
-            href="https://link.binimum.org/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hover:text-unison-text hover:underline"
-          >
-            Powered by BiniLink (link.binimum.org)
-          </a>
+          <span>Powered by Apple Music &amp; BiniLink (link.binimum.org)</span>
           <button
             type="button"
             onClick={onClose}

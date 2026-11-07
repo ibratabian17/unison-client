@@ -66,7 +66,7 @@ export function SubmitPage() {
   const [lyricsText, setLyricsText] = useState("")
   const [finderOpen, setFinderOpen] = useState(false)
   const [fetchingMetadata, setFetchingMetadata] = useState(false)
-  const [matchedBiniLinkTrack, setMatchedBiniLinkTrack] = useState<string | null>(null)
+  const [matchedTrackInfo, setMatchedTrackInfo] = useState<{ label: string; source: string } | null>(null)
   const hasInitializedDurationRef = useRef(false)
 
   const [suggestedVideos, setSuggestedVideos] = useState<VideoSuggestion[]>([])
@@ -163,7 +163,7 @@ export function SubmitPage() {
   // Auto-match metadata via BiniLink (https://link.binimum.org), using YouTube title/artist as fallback query
   useEffect(() => {
     if (!isValidVideoId) {
-      setMatchedBiniLinkTrack(null)
+      setMatchedTrackInfo(null)
       return
     }
 
@@ -190,7 +190,10 @@ export function SubmitPage() {
           if (biniMatch.duration) setDuration((prev) => (prev === "" ? biniMatch.duration! : prev))
           if (biniMatch.isrc) setIsrc((prev) => prev || biniMatch.isrc!)
           const label = [biniMatch.song, biniMatch.artist].filter(Boolean).join(" · ")
-          setMatchedBiniLinkTrack(biniMatch.isrc ? `${label} (${biniMatch.isrc})` : label)
+          setMatchedTrackInfo({
+            label: biniMatch.isrc ? `${label} (${biniMatch.isrc})` : label,
+            source: biniMatch.matchedVia || (biniMatch.appleMusicId ? "Apple Music" : "BiniLink"),
+          })
           return
         }
 
@@ -221,7 +224,7 @@ export function SubmitPage() {
       if (resolved.duration) setDuration((prev) => (prev === "" ? resolved.duration! : prev))
       if (resolved.youtubeId) setVideoIdInput((prev) => prev || resolved.youtubeId!)
       const label = [resolved.song, resolved.artist].filter(Boolean).join(" · ")
-      if (label) setMatchedBiniLinkTrack(`${label} (${clean})`)
+      if (label) setMatchedTrackInfo({ label: `${label} (${clean})`, source: "BiniLink (ISRC)" })
     })
     return () => {
       cancelled = true
@@ -373,7 +376,10 @@ export function SubmitPage() {
     if (meta.isrc) setIsrc(meta.isrc)
     if (meta.youtubeId && !videoIdInput.trim()) setVideoIdInput(meta.youtubeId)
     const label = [meta.song, meta.artist].filter(Boolean).join(" · ")
-    if (label) setMatchedBiniLinkTrack(meta.isrc ? `${label} (${meta.isrc})` : label)
+    if (label) setMatchedTrackInfo({
+      label: meta.isrc ? `${label} (${meta.isrc})` : label,
+      source: meta.source || (meta.isrc ? "Apple Music + BiniLink" : "Apple Music"),
+    })
   }
 
   return (
@@ -449,11 +455,11 @@ export function SubmitPage() {
             />
 
             {/* Auto-match status banner / helper */}
-            {matchedBiniLinkTrack ? (
+            {matchedTrackInfo ? (
               <div className="flex items-center justify-between rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 text-[11px] text-emerald-300">
                 <div className="flex items-center gap-1.5 truncate">
                   <IconCheck className="size-3.5 shrink-0 text-emerald-400" />
-                  <span className="truncate">Matched via BiniLink: <strong>{matchedBiniLinkTrack}</strong></span>
+                  <span className="truncate">Matched via {matchedTrackInfo.source}: <strong>{matchedTrackInfo.label}</strong></span>
                 </div>
                 <button
                   type="button"

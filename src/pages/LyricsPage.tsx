@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { useSession } from "@/auth/useSession"
 import { EditLyricModal } from "@/components/EditLyricModal"
@@ -188,8 +188,9 @@ export function LyricsPage() {
   )
 
   const modals = variant ? (
-    <>
+    <div key={variant.id}>
       <EditLyricModal
+        key={`edit-${variant.id}`}
         variant={variant}
         isOpen={editOpen}
         onClose={() => setEditOpen(false)}
@@ -223,7 +224,7 @@ export function LyricsPage() {
         isOpen={reportOpen}
         onClose={() => setReportOpen(false)}
       />
-    </>
+    </div>
   ) : null
 
   if (!isNew) {

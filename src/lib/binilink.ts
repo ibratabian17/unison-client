@@ -227,46 +227,23 @@ export async function searchSongsViaBiniLink(
   term: string,
   signal?: AbortSignal,
 ): Promise<BiniLinkResolvedTrack[]> {
-  const trimmed = term.trim()
-  if (!trimmed) return []
-
-  const authHeader = await getCatalogSearchToken()
-  if (!authHeader) return []
-
-  try {
-    const params = new URLSearchParams({
-      term: trimmed,
-      types: "songs",
-      limit: "15",
-      offset: "0",
-      l: "en-US",
-    })
-    const res = await fetch(`https://api.music.apple.com/v1/catalog/us/search?${params.toString()}`, {
-      headers: { Authorization: authHeader },
-      signal,
-    })
-    if (!res.ok) return []
-    const json = await res.json()
-    const items: CatalogSongItem[] = json?.results?.songs?.data ?? []
-
-    return items.map((item) => {
-      const attr = item.attributes
-      return {
-        id: item.id,
-        song: attr.name,
-        artist: attr.artistName,
-        album: attr.albumName,
-        duration: attr.durationInMillis ? Math.round(attr.durationInMillis / 1000) : undefined,
-        isrc: attr.isrc,
-        releaseDate: attr.releaseDate,
-        artworkUrl: formatBiniLinkArtwork(attr.artwork?.url, 160),
-        appleMusicId: item.id,
-        matchedVia: "BiniLink",
-      }
-    })
-  } catch {
-    return []
-  }
+  const { searchAppleMusic } = await import("./apple-music")
+  const items = await searchAppleMusic(term, signal)
+  return items.map((item) => {
+    const attr = item.attributes
+    return {
+      id: item.id,
+      song: attr.name,
+      artist: attr.artistName,
+      album: attr.albumName,
+      duration: attr.durationInMillis ? Math.round(attr.durationInMillis / 1000) : undefined,
+      isrc: attr.isrc,
+      releaseDate: attr.releaseDate,
+      artworkUrl: formatBiniLinkArtwork(attr.artwork?.url, 160),
+      appleMusicId: item.id,
+      matchedVia: "Apple Music + BiniLink",
+    }
+  })
 }
 
 /**
