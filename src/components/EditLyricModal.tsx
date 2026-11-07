@@ -1,12 +1,11 @@
-import { popoverSurfaceClass } from "@/components/ui"
-import { useUiMode } from "@/context/UiModeContext"
 import { useEffect, useRef, useState } from "react"
-import { IconClock, IconLoader2, IconSearch, IconX } from "@tabler/icons-react"
+import { IconLoader2, IconSearch, IconX } from "@tabler/icons-react"
 import type { LyricsFormat, VariantFull } from "@/lib/types"
 import { getLanguageOptions, detectLyricsLanguage } from "@/lib/languages"
 import { parseAndValidateLyrics } from "@/lib/lyrics-parser"
-import { saveLyricRevision } from "@/lib/api"
+import { previewLyricRevision, saveLyricRevision, withdrawPendingRevision, type RevisionPreviewData } from "@/lib/api"
 import { MetadataFinderModal, type SelectedMetadata } from "@/components/MetadataFinderModal"
+import { cn } from "@/lib/cn"
 
 interface EditLyricModalProps {
   variant: VariantFull
@@ -28,6 +27,9 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
   const [finderOpen, setFinderOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [autoDetectNotice, setAutoDetectNotice] = useState<string | null>(null)
+  const [previewData, setPreviewData] = useState<RevisionPreviewData | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [withdrawing, setWithdrawing] = useState(false)
   const closeRef = useRef<HTMLButtonElement>(null)
 
   const languages = getLanguageOptions()
@@ -108,6 +110,49 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
     }
   }
 
+  // Debounced revision preview to check immediate vs pending Council review
+  useEffect(() => {
+    if (!isOpen || !lyrics.trim()) {
+      setPreviewData(null)
+      return
+    }
+    let cancelled = false
+    const timer = setTimeout(async () => {
+      setPreviewLoading(true)
+      const data = await previewLyricRevision(variant.id, {
+        lyrics,
+        format,
+        song,
+        artist,
+        album,
+        isrc,
+        language,
+      })
+      if (!cancelled) {
+        setPreviewData(data)
+        setPreviewLoading(false)
+      }
+    }, 450)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [isOpen, lyrics, format, song, artist, album, isrc, language, variant.id])
+
+  const handleWithdrawPending = async () => {
+    if (!window.confirm("Withdraw your pending revision?")) return
+    try {
+      setWithdrawing(true)
+      await withdrawPendingRevision(variant.id)
+      onSaved()
+      onClose()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not withdraw pending revision")
+    } finally {
+      setWithdrawing(false)
+    }
+  }
+
   const handleFormatAutoDetect = () => {
     const parsed = parseAndValidateLyrics(lyrics)
     setFormat(parsed.format)
@@ -163,10 +208,10 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
               </div>
             )}
 
-            {/* Apple Music Finder Trigger Bar */}
+            {/* BiniLink Find & Match Trigger Bar */}
             <div className="flex items-center justify-between rounded-[9px] border border-unison-border/70 bg-[#0d0d10] px-3.5 py-2">
               <span className="text-[12px] text-unison-text-secondary">
-                Resolve track metadata & ISRC via BiniLink:
+                Find song or match metadata &amp; ISRC via BiniLink:
               </span>
               <button
                 type="button"
@@ -174,7 +219,7 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
                 className="inline-flex items-center gap-1.5 rounded-[7px] border border-unison-border bg-unison-surface px-2.5 py-1 text-[11.5px] font-medium text-unison-text hover:bg-unison-bg-hover transition-colors cursor-pointer"
               >
                 <IconSearch className="size-3 text-unison-text-muted" />
-                <span>Match via BiniLink</span>
+                <span>Find / Match Song</span>
               </button>
             </div>
 
@@ -294,6 +339,31 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
                 </div>
               )}
 
+              {/* Revision disposition preview badge */}
+              {previewData ? (
+                <div
+                  className={cn(
+                    "flex items-center justify-between rounded-lg px-3 py-1.5 text-[11px]",
+                    previewData.disposition === "immediate"
+                      ? "border border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+                      : "border border-amber-500/20 bg-amber-500/10 text-amber-300",
+                  )}
+                >
+                  <span>
+                    {previewData.disposition === "immediate"
+                      ? "✓ Low drift: changes will apply immediately upon saving."
+                      : "⚡ Significant change: will be submitted to Council for verification."}
+                  </span>
+                  {previewData.drift ? (
+                    <span className="font-mono text-[10px] opacity-75">
+                      Text: {Math.round(previewData.drift.textDrift * 100)}% · Timing: {Math.round(previewData.drift.timingDrift * 100)}%
+                    </span>
+                  ) : null}
+                </div>
+              ) : previewLoading ? (
+                <div className="text-[11px] text-unison-text-muted">Evaluating revision drift…</div>
+              ) : null}
+
               <textarea
                 required
                 rows={9}
@@ -305,22 +375,32 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
             </div>
 
             {/* Footer Actions */}
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-unison-border/80">
+            <div className="flex items-center justify-between gap-2 pt-2 border-t border-unison-border/80">
               <button
                 type="button"
-                onClick={onClose}
-                className="rounded-[8px] px-3.5 py-1.5 text-[12.5px] text-unison-text-secondary hover:bg-unison-bg-hover hover:text-unison-text transition-colors cursor-pointer"
+                onClick={handleWithdrawPending}
+                disabled={withdrawing}
+                className="rounded-[8px] px-2.5 py-1 text-[11px] text-unison-text-muted hover:text-red-400 transition-colors cursor-pointer"
               >
-                Cancel
+                {withdrawing ? "Withdrawing…" : "Withdraw pending edit"}
               </button>
-              <button
-                type="submit"
-                disabled={saving}
-                className="inline-flex items-center gap-1.5 rounded-[8px] bg-red-600 px-4 py-1.5 text-[12.5px] font-semibold text-white shadow-sm hover:bg-red-500 disabled:opacity-50 transition-colors cursor-pointer"
-              >
-                {saving ? <IconLoader2 className="size-3.5 animate-spin" /> : null}
-                <span>Save Revision</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="rounded-[8px] px-3.5 py-1.5 text-[12.5px] text-unison-text-secondary hover:bg-unison-bg-hover hover:text-unison-text transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="inline-flex items-center gap-1.5 rounded-[8px] bg-red-600 px-4 py-1.5 text-[12.5px] font-semibold text-white shadow-sm hover:bg-red-500 disabled:opacity-50 transition-colors cursor-pointer"
+                >
+                  {saving ? <IconLoader2 className="size-3.5 animate-spin" /> : null}
+                  <span>Save Revision</span>
+                </button>
+              </div>
             </div>
           </form>
         </div>
@@ -328,7 +408,7 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
 
       <MetadataFinderModal
         isOpen={finderOpen}
-        initialQuery={isrc || variant.videoId}
+        initialQuery={[song, artist].filter(Boolean).join(" ").trim() || isrc || variant.videoId}
         onClose={() => setFinderOpen(false)}
         onSelect={handleMetadataSelect}
       />

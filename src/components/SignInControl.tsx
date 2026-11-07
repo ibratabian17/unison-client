@@ -5,6 +5,7 @@ import { glassClass, popoverSurfaceClass } from "@/components/ui"
 import { useUiMode } from "@/context/UiModeContext"
 import { useCopied } from "@/hooks/useCopied"
 import { usePresence } from "@/hooks/usePresence"
+import { hasSigningKeyFor } from "@/lib/browser-identity"
 import { cn } from "@/lib/cn"
 import {
   IconCheck,
@@ -74,6 +75,9 @@ export function SignInControl({ glass = false }: { glass?: boolean }) {
       setOpen(false)
       session.signOut()
     }
+    const isPublic = identity.keyId === "cea10b57de8e060ed1a180a00c2bc717a2ab4f231d88fd33ffa6a50a04f23b6e"
+    const canExportKey = hasSigningKeyFor(identity.keyId)
+
     return (
       <div className="relative" ref={wrapperRef} data-state="signed-in">
         <button
@@ -103,12 +107,16 @@ export function SignInControl({ glass = false }: { glass?: boolean }) {
               glass
                 ? cn(popoverSurfaceClass, "rounded-2xl")
                 : "rounded-lg border border-unison-border bg-unison-bg-elevated shadow-lg",
-              "t-dropdown absolute right-0 z-20 mt-2 w-56 p-3",
+              "t-dropdown absolute right-0 z-20 mt-2 w-60 p-3",
               presence.closing && "is-closing",
             )}
           >
-            <div className="space-y-2 pb-3">
-              <p className="text-xs text-unison-text-muted">Key ID</p>
+            <div className="space-y-1.5 pb-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-unison-text-muted">
+                  {isPublic ? "Public Account" : "Key ID"}
+                </span>
+              </div>
               <div className="flex items-center gap-2">
                 <code title={identity.keyId} className="min-w-0 flex-1 font-mono text-xs text-unison-text">
                   {`${identity.keyId.slice(0, 6)}…${identity.keyId.slice(-6)}`}
@@ -128,6 +136,7 @@ export function SignInControl({ glass = false }: { glass?: boolean }) {
                 </button>
               </div>
             </div>
+
             <div className="border-t border-unison-border pt-2">
               <Link
                 to="/me"
@@ -150,18 +159,20 @@ export function SignInControl({ glass = false }: { glass?: boolean }) {
                 <IconSettings className="size-4" stroke={1.5} />
                 Settings
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setOpen(false)
-                  void session.exportIdentityFile()
-                }}
-                role="menuitem"
-                className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-unison-text transition-colors hover:bg-unison-bg-hover"
-              >
-                <IconFileUpload className="size-4 rotate-180" stroke={1.5} />
-                Export key file
-              </button>
+              {canExportKey ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false)
+                    void session.exportIdentityFile()
+                  }}
+                  role="menuitem"
+                  className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-unison-text transition-colors hover:bg-unison-bg-hover"
+                >
+                  <IconFileUpload className="size-4 rotate-180" stroke={1.5} />
+                  Export key file
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={signOut}
@@ -270,7 +281,7 @@ export function SignInControl({ glass = false }: { glass?: boolean }) {
                   value={pastedKeyJson}
                   onChange={(e) => setPastedKeyJson(e.target.value)}
                   rows={3}
-                  placeholder='{"version":1,"publicKeyJwk":...}'
+                  placeholder='{"version":1,"keyId":"...","publicKey":...,"privateKey":...}'
                   className="w-full rounded-md border border-white/15 bg-black/40 p-2 font-mono text-[11px] text-unison-text placeholder:text-unison-text-muted focus:border-white/35 focus:outline-none"
                 />
                 <button
@@ -294,7 +305,7 @@ export function SignInControl({ glass = false }: { glass?: boolean }) {
               className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-unison-text transition-colors hover:bg-unison-bg-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
               <IconUser className="size-4 text-unison-text-secondary" stroke={1.5} />
-              Log in as Public Account
+              Sign in to Public Account
             </button>
             {session.status === "error" ? (
               <p role="alert" className="px-2 pt-1 text-xs text-red-400">

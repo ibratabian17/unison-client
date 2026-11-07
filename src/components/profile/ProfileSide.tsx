@@ -10,6 +10,8 @@ import { useCopied } from "@/hooks/useCopied"
 import { LAYOUT_TRANSITION } from "@/lib/motion-variants"
 import { plural } from "@/lib/format"
 import { levelProgress } from "@/lib/level"
+import { fetchUserFulfillmentStats, type UserFulfillmentStats } from "@/lib/api"
+import { useEffect, useState } from "react"
 import type { UserGamification, UserRankResponse } from "@/lib/types"
 
 interface ProfileSideProps {
@@ -60,6 +62,16 @@ function LevelLine({ gamification }: { gamification: UserGamification }) {
 }
 
 export function ProfileSide({ keyId, rank, gamification, owner, onEditProfile }: ProfileSideProps) {
+  const [stats, setStats] = useState<UserFulfillmentStats | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    fetchUserFulfillmentStats(keyId).then((res) => {
+      if (!cancelled && res && res.requestsFulfilled > 0) setStats(res)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [keyId])
   const [copied, copy] = useCopied()
   const share = (
     <motion.button
@@ -86,6 +98,12 @@ export function ProfileSide({ keyId, rank, gamification, owner, onEditProfile }:
     <div className="flex min-w-0 flex-col gap-5">
       <Lede rank={rank} />
       {gamification && !rank.community ? <LevelLine gamification={gamification} /> : null}
+      {stats ? (
+        <p className="text-[12.5px] font-semibold text-emerald-400/90 flex items-center gap-1.5">
+          <span>✓ {stats.requestsFulfilled} Most Wanted requests fulfilled</span>
+          <span className="text-unison-text-muted font-normal">({stats.totalDemandFulfilled.toFixed(1)} demand)</span>
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center gap-2">
         {rank.discord ? (
           <>

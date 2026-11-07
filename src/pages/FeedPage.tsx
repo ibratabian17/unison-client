@@ -223,6 +223,72 @@ export function FeedPage() {
     else setSearchParams({ tab })
   }
 
+  // Keyboard shortcuts from Better Lyrics unisonPage.ts
+  useEffect(() => {
+    if (activeTab !== "browse" && activeTab !== "mine") return
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        target?.isContentEditable
+      ) {
+        return
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const k = e.key.toUpperCase()
+      if (k === "1") {
+        e.preventDefault()
+        setFilters((prev) => ({
+          ...prev,
+          sort: "newest",
+          sortDir: prev.sort === "newest" ? (prev.sortDir === "desc" ? "asc" : "desc") : "desc",
+        }))
+      } else if (k === "2") {
+        e.preventDefault()
+        setFilters((prev) => ({
+          ...prev,
+          sort: "top-rated",
+          sortDir: prev.sort === "top-rated" ? (prev.sortDir === "desc" ? "asc" : "desc") : "desc",
+        }))
+      } else if (k === "3") {
+        e.preventDefault()
+        setFilters((prev) => ({
+          ...prev,
+          sort: "most-voted",
+          sortDir: prev.sort === "most-voted" ? (prev.sortDir === "desc" ? "asc" : "desc") : "desc",
+        }))
+      } else if (k === "Q") {
+        e.preventDefault()
+        setFilters((f) => ({ ...f, syncType: f.syncType === "richsync" ? "all" : "richsync" }))
+      } else if (k === "W") {
+        e.preventDefault()
+        setFilters((f) => ({ ...f, syncType: f.syncType === "linesync" ? "all" : "linesync" }))
+      } else if (k === "E") {
+        e.preventDefault()
+        setFilters((f) => ({ ...f, syncType: f.syncType === "plain" ? "all" : "plain" }))
+      } else if (k === "D") {
+        e.preventDefault()
+        setFilters((f) => ({ ...f, tier: f.tier === "trusted-plus" ? "all" : "trusted-plus" }))
+      } else if (k === "F") {
+        e.preventDefault()
+        setFilters((f) => ({ ...f, tier: f.tier === "top-rated" ? "all" : "top-rated" }))
+      } else if (k === "Z") {
+        e.preventDefault()
+        setFilters((f) => ({ ...f, format: f.format === "lrc" ? "all" : "lrc" }))
+      } else if (k === "X") {
+        e.preventDefault()
+        setFilters((f) => ({ ...f, format: f.format === "ttml" ? "all" : "ttml" }))
+      } else if (k === "C") {
+        e.preventDefault()
+        setFilters((f) => ({ ...f, format: f.format === "plain" ? "all" : "plain" }))
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [activeTab])
+
   const loadFeed = useCallback(
     async (isInitial = true, cursor?: number) => {
       if (activeTab === "discover" || activeTab === "wanted") return
@@ -410,16 +476,48 @@ export function FeedPage() {
           >
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2">
-                <Segmented
-                  label="Sort by"
-                  value={filters.sort}
-                  options={[
-                    { value: "newest", label: "Newest" },
-                    { value: "top-rated", label: "Top Rated" },
-                    { value: "most-voted", label: "Most Voted" },
-                  ]}
-                  onChange={(sort) => setFilters((f) => ({ ...f, sort }))}
-                />
+                {/* Sort Chips with asc/desc direction flip and 1-3 hotkeys */}
+                <fieldset aria-label="Sort by" className="inline-flex flex-wrap rounded-lg bg-white/[0.02] p-0.5 shadow-[inset_0_0_0_1px_var(--color-unison-border)] gap-0.5">
+                  {(
+                    [
+                      { key: "newest", desc: "Newest", asc: "Oldest", num: "1" },
+                      { key: "top-rated", desc: "Top Rated", asc: "Bottom Rated", num: "2" },
+                      { key: "most-voted", desc: "Most Voted", asc: "Least Voted", num: "3" },
+                    ] as const
+                  ).map(({ key, desc, asc, num }) => {
+                    const active = filters.sort === key
+                    const label = active && filters.sortDir === "asc" ? asc : desc
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => {
+                          setFilters((prev) => {
+                            if (prev.sort === key) {
+                              return { ...prev, sortDir: prev.sortDir === "desc" ? "asc" : "desc" }
+                            }
+                            return { ...prev, sort: key, sortDir: "desc" }
+                          })
+                        }}
+                        className={cn(
+                          "cursor-pointer rounded-md px-2.5 py-1 text-xs font-medium transition-colors inline-flex items-center gap-1",
+                          active
+                            ? "bg-unison-bg-hover text-unison-text shadow-inset-rim"
+                            : "text-unison-text-muted hover:text-unison-text",
+                        )}
+                      >
+                        <span>{label}</span>
+                        {active ? (
+                          <span className="text-[10px] text-unison-text-muted font-bold">
+                            {filters.sortDir === "asc" ? "▲" : "▼"}
+                          </span>
+                        ) : null}
+                        <kbd className="rounded bg-black/40 px-1 text-[9px] text-unison-text-muted font-mono">{num}</kbd>
+                      </button>
+                    )
+                  })}
+                </fieldset>
                 <Segmented
                   label="Sync type"
                   value={filters.syncType}

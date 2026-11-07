@@ -15,6 +15,7 @@ import { VariantMetadata, VariantMetadataSkeleton } from "@/components/VariantMe
 import { VoteControls } from "@/components/VoteControls"
 import { EditMetadataButton } from "@/components/council/EditMetadataButton"
 import { SealLyricButton } from "@/components/council/SealLyricButton"
+import { BoostLyricButton } from "@/components/council/BoostLyricButton"
 import { YouTubeMusicIcon } from "@/components/icons/YouTubeMusicIcon"
 import { Bone } from "@/components/skeleton"
 import { SongHero, SongHeroSkeleton } from "@/components/song/SongHero"
@@ -23,7 +24,7 @@ import { useUiMode } from "@/context/UiModeContext"
 import { useFillHeight } from "@/hooks/useFillHeight"
 import { useLyricsVariant, useLyricsVariants } from "@/hooks/useLyricsData"
 import { useYouTubePlayer } from "@/hooks/useYouTubePlayer"
-import { deleteLyrics } from "@/lib/api"
+import { deleteLyrics, fetchSongRank, type SongRankResponse } from "@/lib/api"
 import { songBackdrop, useArtwork } from "@/lib/artwork"
 import { cn } from "@/lib/cn"
 import { youTubeMusicUrl } from "@/lib/youtube-music"
@@ -48,6 +49,7 @@ export function LyricsPage() {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [videosOpen, setVideosOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [songRank, setSongRank] = useState<SongRankResponse | null>(null)
   const session = useSession()
   const queryClient = useQueryClient()
   const variantIdParam = params.get("variantId")
@@ -86,6 +88,18 @@ export function LyricsPage() {
   const variantsQuery = useLyricsVariants(safeVideoId)
 
   const variants = useMemo(() => variantsQuery.data?.variants ?? [], [variantsQuery.data])
+
+  useEffect(() => {
+    if (variantsQuery.isSuccess && variants.length === 0 && safeVideoId) {
+      let cancelled = false
+      fetchSongRank(safeVideoId).then((res) => {
+        if (!cancelled && res.ranked) setSongRank(res)
+      })
+      return () => {
+        cancelled = true
+      }
+    }
+  }, [variantsQuery.isSuccess, variants.length, safeVideoId])
   const requestedId = variantIdParam !== null ? Number(variantIdParam) : null
   const selectedId = useMemo(() => {
     if (requestedId !== null && variants.some((v) => v.id === requestedId)) return requestedId
@@ -147,10 +161,14 @@ export function LyricsPage() {
   }
   if (variants.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center space-y-4 py-16 text-center">
+      <div className="flex flex-col items-center justify-center space-y-4 py-16 text-center max-w-md mx-auto">
         <EmptyState
           title="No lyrics yet"
-          hint="Request this song for the community queue, or submit synchronized lyrics directly."
+          hint={
+            songRank?.ranked
+              ? `This song is ranked #${songRank.rank} on the Most Wanted board with ${songRank.requestCount} requests (${songRank.demand?.toFixed(1)} demand). Be the first to submit lyrics!`
+              : "Be the first to submit synchronized lyrics for this song!"
+          }
         />
         <Link
           to={`/submit?videoId=${encodeURIComponent(safeVideoId)}`}
@@ -227,6 +245,7 @@ export function LyricsPage() {
                 current={{ song: variant.song, artist: variant.artist, album: variant.album ?? null }}
               />
               <SealLyricButton videoId={safeVideoId} lyricsId={variant.id} />
+              <BoostLyricButton lyricsId={variant.id} />
               <VoteControls
                 variantId={variant.id}
                 videoId={safeVideoId}

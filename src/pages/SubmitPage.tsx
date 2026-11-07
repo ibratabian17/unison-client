@@ -4,12 +4,12 @@ import { useSession } from "@/auth/useSession"
 import { submitLyrics } from "@/lib/api"
 import { fetchVideoMetadata } from "@/lib/video-metadata"
 import { getLanguageOptions, detectLyricsLanguage } from "@/lib/languages"
-import { parseAndValidateLyrics, detectFormat } from "@/lib/lyrics-parser"
+import { parseAndValidateLyrics } from "@/lib/lyrics-parser"
 import { useYouTubePlayer } from "@/hooks/useYouTubePlayer"
 import { CoverImage } from "@/components/AlbumArt"
 import { LyricsRenderer } from "@/components/LyricsRenderer"
 import { usePageArt } from "@/components/PageArt"
-import { chipClass, chipIconClass, glassClass, raisedChipClass } from "@/components/ui"
+import { chipClass, glassClass, raisedChipClass } from "@/components/ui"
 import { useUiMode } from "@/context/UiModeContext"
 import { songBackdrop, useArtwork } from "@/lib/artwork"
 import { cn } from "@/lib/cn"
@@ -28,6 +28,8 @@ import {
 } from "@tabler/icons-react"
 import { MetadataFinderModal, type SelectedMetadata } from "@/components/MetadataFinderModal"
 import { matchYouTubeViaBiniLink, resolveIsrcWithMetadata } from "@/lib/binilink"
+import { fetchSuggestedVideosForSong } from "@/lib/api"
+import type { VideoSuggestion } from "@/lib/types"
 import type { LyricsFormat, VariantFull } from "@/lib/types"
 
 import { videoIdFromInput } from "@/lib/youtube-music"
@@ -67,6 +69,8 @@ export function SubmitPage() {
   const [matchedBiniLinkTrack, setMatchedBiniLinkTrack] = useState<string | null>(null)
   const hasInitializedDurationRef = useRef(false)
 
+  const [suggestedVideos, setSuggestedVideos] = useState<VideoSuggestion[]>([])
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; title: string; hint?: string } | null>(null)
@@ -79,6 +83,32 @@ export function SubmitPage() {
   useEffect(() => {
     hasInitializedDurationRef.current = false
   }, [cleanVideoId])
+
+  // Pre-submit YouTube video suggestions based on song and artist
+  useEffect(() => {
+    if (!song.trim() || !artist.trim() || isValidVideoId) {
+      setSuggestedVideos([])
+      return
+    }
+    let cancelled = false
+    setLoadingSuggestions(true)
+    const timer = setTimeout(async () => {
+      const res = await fetchSuggestedVideosForSong({
+        song: song.trim(),
+        artist: artist.trim(),
+        album: album.trim() || undefined,
+        duration: typeof duration === "number" ? duration : undefined,
+      })
+      if (!cancelled) {
+        setSuggestedVideos(res.suggestions.slice(0, 4))
+        setLoadingSuggestions(false)
+      }
+    }, 500)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [song, artist, album, duration, isValidVideoId])
 
   // Validation & format parsing
   const validation = useMemo(() => parseAndValidateLyrics(lyricsText), [lyricsText])
@@ -130,7 +160,7 @@ export function SubmitPage() {
       : "border border-unison-border bg-unison-bg-elevated focus:border-unison-border-strong",
   )
 
-  // Auto-match metadata via BiniLink (https://link.binimum.org), with YouTube oEmbed fallback
+  // Auto-match metadata via BiniLink (https://link.binimum.org), using YouTube title/artist as fallback query
   useEffect(() => {
     if (!isValidVideoId) {
       setMatchedBiniLinkTrack(null)
@@ -146,8 +176,13 @@ export function SubmitPage() {
 
     ;(async () => {
       try {
-        const biniMatch = await matchYouTubeViaBiniLink(cleanVideoId)
+        const ytMeta = await fetchVideoMetadata(cleanVideoId)
         if (cancelled) return
+
+        const fallbackQuery = [ytMeta?.song, ytMeta?.artist].filter(Boolean).join(" ").trim()
+        const biniMatch = await matchYouTubeViaBiniLink(cleanVideoId, fallbackQuery || undefined)
+        if (cancelled) return
+
         if (biniMatch && (biniMatch.song || biniMatch.isrc)) {
           if (biniMatch.song) setSong((prev) => prev || biniMatch.song)
           if (biniMatch.artist) setArtist((prev) => prev || biniMatch.artist)
@@ -159,10 +194,10 @@ export function SubmitPage() {
           return
         }
 
-        const ytMeta = await fetchVideoMetadata(cleanVideoId)
-        if (cancelled || !ytMeta) return
-        if (ytMeta.song) setSong((prev) => prev || ytMeta.song)
-        if (ytMeta.artist) setArtist((prev) => prev || ytMeta.artist)
+        if (ytMeta) {
+          if (ytMeta.song) setSong((prev) => prev || ytMeta.song)
+          if (ytMeta.artist) setArtist((prev) => prev || ytMeta.artist)
+        }
       } finally {
         if (!cancelled) setFetchingMetadata(false)
       }
@@ -353,6 +388,15 @@ export function SubmitPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setFinderOpen(true)}
+            className={isNew ? chipClass : "inline-flex items-center gap-1.5 rounded-lg border border-unison-border bg-unison-bg-elevated px-3 py-1.5 text-xs font-medium text-unison-text transition-colors hover:border-unison-border-strong hover:bg-unison-bg-hover cursor-pointer"}
+          >
+            <IconSearch className="size-3.5 text-unison-text-secondary" />
+            <span>Find / Match Song (BiniLink)</span>
+          </button>
+
           <input
             type="file"
             ref={fileInputRef}
@@ -374,7 +418,7 @@ export function SubmitPage() {
 
       <MetadataFinderModal
         isOpen={finderOpen}
-        initialQuery={isrc || cleanVideoId}
+        initialQuery={[song, artist].filter(Boolean).join(" ").trim() || isrc || cleanVideoId}
         onClose={() => setFinderOpen(false)}
         onSelect={handleMetadataSelect}
       />
@@ -391,7 +435,7 @@ export function SubmitPage() {
               {fetchingMetadata && (
                 <span className="inline-flex items-center gap-1.5 text-[11px] text-unison-text-secondary">
                   <IconLoader2 className="size-3.5 animate-spin text-unison-text-secondary" />
-                  <span>Matching catalog...</span>
+                  <span>Matching via BiniLink...</span>
                 </span>
               )}
             </div>
@@ -409,14 +453,14 @@ export function SubmitPage() {
               <div className="flex items-center justify-between rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 text-[11px] text-emerald-300">
                 <div className="flex items-center gap-1.5 truncate">
                   <IconCheck className="size-3.5 shrink-0 text-emerald-400" />
-                  <span className="truncate">Auto-matched via BiniLink: <strong>{matchedBiniLinkTrack}</strong></span>
+                  <span className="truncate">Matched via BiniLink: <strong>{matchedBiniLinkTrack}</strong></span>
                 </div>
                 <button
                   type="button"
                   onClick={() => setFinderOpen(true)}
                   className="shrink-0 ml-2 text-xs text-emerald-400 underline hover:text-emerald-200 cursor-pointer"
                 >
-                  Change match
+                  Change song
                 </button>
               </div>
             ) : isValidVideoId && !fetchingMetadata ? (
@@ -428,10 +472,46 @@ export function SubmitPage() {
                   className="text-unison-text-secondary hover:text-unison-text flex items-center gap-1 cursor-pointer transition-colors"
                 >
                   <IconSearch className="size-3" />
-                  <span>Match via BiniLink</span>
+                  <span>Find / Match Song</span>
                 </button>
               </div>
             ) : null}
+
+            {/* Pre-submit YouTube Video Suggestions */}
+            {(suggestedVideos.length > 0 || loadingSuggestions) && !isValidVideoId && (
+              <div className="space-y-1.5 pt-1.5 border-t border-white/10">
+                <span className="text-[11px] font-semibold text-unison-text-muted uppercase tracking-wider">
+                  {loadingSuggestions ? "Searching suggested YouTube videos…" : "Suggested Videos"}
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                  {suggestedVideos.map((sug) => (
+                    <button
+                      key={sug.videoId}
+                      type="button"
+                      onClick={() => {
+                        setVideoIdInput(sug.videoId)
+                        if (sug.duration) setDuration(Math.round(sug.duration))
+                      }}
+                      className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] p-2 text-left hover:bg-white/[0.08] transition-colors cursor-pointer group"
+                    >
+                      <img
+                        src={`https://i.ytimg.com/vi/${sug.videoId}/default.jpg`}
+                        alt=""
+                        className="size-8 rounded object-cover shrink-0 border border-white/10"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-semibold text-unison-text group-hover:text-white">
+                          {sug.title}
+                        </p>
+                        <p className="truncate font-mono text-[10px] text-unison-text-muted">
+                          {sug.videoId} {sug.duration ? `· ${Math.round(sug.duration)}s` : ""}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

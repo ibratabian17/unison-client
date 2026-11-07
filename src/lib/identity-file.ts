@@ -1,9 +1,10 @@
 import type { SignedBody } from "./auth"
 import { canonicalJson } from "./canonical-json"
+import { saveActiveBrowserIdentity } from "./browser-identity"
 
 export const IDENTITY_FILE_ERRORS = {
-  notIdentity: "This file is not a Better Lyrics identity export.",
-  damaged: "This identity file is damaged. Export it again from Better Lyrics.",
+  notIdentity: "This file is not a valid Better Lyrics identity export.",
+  damaged: "This identity file is damaged or the public/private key pair does not match.",
 } as const
 
 const ECDSA_P256 = { name: "ECDSA", namedCurve: "P-256" } as const
@@ -21,18 +22,22 @@ function isP256Jwk(value: unknown): value is JsonWebKey {
   return jwk.kty === "EC" && jwk.crv === "P-256" && typeof jwk.x === "string" && typeof jwk.y === "string"
 }
 
-function parseIdentityExport(text: string): IdentityExport {
+export function parseIdentityExport(text: string): IdentityExport {
   let parsed: unknown
   try {
     parsed = JSON.parse(text)
   } catch {
     throw new Error(IDENTITY_FILE_ERRORS.notIdentity)
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(IDENTITY_FILE_ERRORS.notIdentity)
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(IDENTITY_FILE_ERRORS.notIdentity)
+  }
   const file = parsed as Record<string, unknown>
-  const { publicKey, privateKey, keyId } = file
+  const publicKey = (file.publicKey ?? file.publicKeyJwk) as JsonWebKey | undefined
+  const privateKey = (file.privateKey ?? file.privateKeyJwk) as JsonWebKey | undefined
+  const keyId = file.keyId
+
   if (
-    file.version !== 1 ||
     typeof keyId !== "string" ||
     keyId.length !== 64 ||
     !isP256Jwk(publicKey) ||
@@ -67,8 +72,6 @@ async function importSigningKey(identity: IdentityExport): Promise<CryptoKey> {
     throw new Error(IDENTITY_FILE_ERRORS.damaged)
   }
 }
-
-import { saveActiveBrowserIdentity } from "./browser-identity"
 
 export async function signInWithIdentityFile(file: File, nonce: string): Promise<SignedBody> {
   const identity = parseIdentityExport(await file.text())

@@ -1,4 +1,5 @@
 export const BINILINK_BASE_URL = "https://link.binimum.org"
+const TOKEN_ENDPOINT = "https://am-mint.binimum.org/token"
 
 export type BiniLinkProvider = "spotify" | "apple_music" | "tidal"
 export type BiniLinkMetadataService = "spotify" | "apple_music" | "tidal" | "deezer" | "youtube"
@@ -66,6 +67,60 @@ export interface BiniLinkResolvedTrack {
   appleMusicId?: string
   tidalId?: string
   matchedVia: string
+}
+
+interface MintTokenResponse {
+  storefront_id?: string
+  token: string
+  token_type?: string
+  cache_ttl_seconds?: number
+}
+
+interface CatalogSongItem {
+  id: string
+  attributes: {
+    name: string
+    artistName: string
+    albumName?: string
+    isrc?: string
+    durationInMillis?: number
+    releaseDate?: string
+    artwork?: { url: string }
+  }
+}
+
+let cachedToken: string | null = null
+let tokenExpiresAt = 0
+let tokenPromise: Promise<string | null> | null = null
+
+async function getCatalogSearchToken(): Promise<string | null> {
+  const now = Date.now()
+  if (cachedToken && tokenExpiresAt > now) return cachedToken
+  if (tokenPromise) return tokenPromise
+
+  tokenPromise = (async () => {
+    try {
+      const res = await fetch(TOKEN_ENDPOINT)
+      if (!res.ok) return null
+      const data = (await res.json()) as MintTokenResponse
+      if (!data?.token) return null
+      const tokenType = data.token_type ?? "Bearer"
+      const authHeader = `${tokenType} ${data.token}`.trim()
+      cachedToken = authHeader
+      const ttlSec =
+        typeof data.cache_ttl_seconds === "number" && data.cache_ttl_seconds > 0
+          ? data.cache_ttl_seconds
+          : 120
+      tokenExpiresAt = Date.now() + Math.max(10, ttlSec - 10) * 1000
+      return authHeader
+    } catch {
+      return null
+    } finally {
+      tokenPromise = null
+    }
+  })()
+
+  return tokenPromise
 }
 
 export function formatBiniLinkArtwork(url?: string | null, size = 160): string | undefined {
@@ -166,29 +221,137 @@ function buildResolvedTrack(
 }
 
 /**
+ * Search songs by title, artist, or album and enrich via BiniLink.
+ */
+export async function searchSongsViaBiniLink(
+  term: string,
+  signal?: AbortSignal,
+): Promise<BiniLinkResolvedTrack[]> {
+  const trimmed = term.trim()
+  if (!trimmed) return []
+
+  const authHeader = await getCatalogSearchToken()
+  if (!authHeader) return []
+
+  try {
+    const params = new URLSearchParams({
+      term: trimmed,
+      types: "songs",
+      limit: "15",
+      offset: "0",
+      l: "en-US",
+    })
+    const res = await fetch(`https://api.music.apple.com/v1/catalog/us/search?${params.toString()}`, {
+      headers: { Authorization: authHeader },
+      signal,
+    })
+    if (!res.ok) return []
+    const json = await res.json()
+    const items: CatalogSongItem[] = json?.results?.songs?.data ?? []
+
+    return items.map((item) => {
+      const attr = item.attributes
+      return {
+        id: item.id,
+        song: attr.name,
+        artist: attr.artistName,
+        album: attr.albumName,
+        duration: attr.durationInMillis ? Math.round(attr.durationInMillis / 1000) : undefined,
+        isrc: attr.isrc,
+        releaseDate: attr.releaseDate,
+        artworkUrl: formatBiniLinkArtwork(attr.artwork?.url, 160),
+        appleMusicId: item.id,
+        matchedVia: "BiniLink",
+      }
+    })
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Enrich a selected song item via BiniLink (/api/v1/resolve/apple_music/{id} or /api/v1/isrc/{isrc})
+ * so its ISRC, cross-provider IDs, and BiniLink metadata are guaranteed up to date.
+ */
+export async function enrichTrackViaBiniLink(
+  track: BiniLinkResolvedTrack,
+  signal?: AbortSignal,
+): Promise<BiniLinkResolvedTrack> {
+  if (track.appleMusicId) {
+    const resolved = await resolveProviderWithMetadata("apple_music", track.appleMusicId, signal)
+    if (resolved) {
+      return {
+        ...track,
+        song: resolved.song || track.song,
+        artist: resolved.artist || track.artist,
+        album: resolved.album || track.album,
+        duration: resolved.duration ?? track.duration,
+        isrc: resolved.isrc || track.isrc,
+        artworkUrl: resolved.artworkUrl || track.artworkUrl,
+        youtubeId: resolved.youtubeId || track.youtubeId,
+        spotifyId: resolved.spotifyId || track.spotifyId,
+        tidalId: resolved.tidalId || track.tidalId,
+      }
+    }
+  }
+  if (track.isrc) {
+    const resolved = await resolveIsrcWithMetadata(track.isrc, signal)
+    if (resolved) {
+      return {
+        ...track,
+        song: resolved.song || track.song,
+        artist: resolved.artist || track.artist,
+        album: resolved.album || track.album,
+        duration: resolved.duration ?? track.duration,
+        isrc: resolved.isrc || track.isrc,
+        artworkUrl: resolved.artworkUrl || track.artworkUrl,
+        youtubeId: resolved.youtubeId || track.youtubeId,
+        spotifyId: resolved.spotifyId || track.spotifyId,
+        appleMusicId: resolved.appleMusicId || track.appleMusicId,
+        tidalId: resolved.tidalId || track.tidalId,
+      }
+    }
+  }
+  return track
+}
+
+/**
  * Auto-match a YouTube / YouTube Music 11-char videoId via BiniLink:
- * 1. GET /api/v1/metadata/youtube/{videoId}
- * 2. If apple_music_id is returned, also resolve GET /api/v1/resolve/apple_music/{apple_music_id} to obtain ISRC and cross-service IDs.
+ * 1. First queries GET /api/v1/metadata/youtube/{videoId} on link.binimum.org
+ * 2. If apple_music_id is returned, resolves GET /api/v1/resolve/apple_music/{apple_music_id} on link.binimum.org for ISRC
+ * 3. If the YouTube video is not yet in BiniLink's ingested YouTube table, uses fallbackTitle/fallbackArtist
+ *    to find the track and resolves it through BiniLink (/api/v1/resolve/apple_music/{id}).
  */
 export async function matchYouTubeViaBiniLink(
   videoId: string,
+  fallbackQuery?: string,
   signal?: AbortSignal,
 ): Promise<BiniLinkResolvedTrack | null> {
-  if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) return null
-  const meta = await getBiniLinkTrackMetadata("youtube", videoId, signal)
-  if (!meta) return null
-
-  let mapping: BiniLinkMapping | null = null
-  if (meta.apple_music_id) {
-    mapping = await resolveBiniLinkProviderId("apple_music", meta.apple_music_id, signal)
+  if (/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
+    const meta = await getBiniLinkTrackMetadata("youtube", videoId, signal)
+    if (meta) {
+      let mapping: BiniLinkMapping | null = null
+      if (meta.apple_music_id) {
+        mapping = await resolveBiniLinkProviderId("apple_music", meta.apple_music_id, signal)
+      }
+      const direct = buildResolvedTrack(
+        meta,
+        mapping ?? { youtube: videoId, apple_music: meta.apple_music_id },
+        "BiniLink",
+        videoId,
+      )
+      if (direct) return direct
+    }
   }
 
-  return buildResolvedTrack(
-    meta,
-    mapping ?? { youtube: videoId, apple_music: meta.apple_music_id },
-    "BiniLink (YouTube)",
-    videoId,
-  )
+  if (fallbackQuery && fallbackQuery.trim()) {
+    const candidates = await searchSongsViaBiniLink(fallbackQuery, signal)
+    if (candidates.length > 0) {
+      return enrichTrackViaBiniLink(candidates[0], signal)
+    }
+  }
+
+  return null
 }
 
 export async function resolveIsrcWithMetadata(
@@ -267,11 +430,9 @@ export function parseBiniLinkInput(raw: string): ParsedBiniLinkQuery | null {
   const trimmed = raw.trim()
   if (!trimmed) return null
 
-  // 1. Spotify URL or URI
   const spotifyUrl = trimmed.match(/(?:open\.spotify\.com\/(?:intl-[a-z-]+\/)?track\/|spotify:track:)([A-Za-z0-9]{22})/)
   if (spotifyUrl) return { kind: "provider", service: "spotify", id: spotifyUrl[1] }
 
-  // 2. Apple Music URL (?i=trackId or /song/.../trackId)
   if (/music\.apple\.com/i.test(trimmed)) {
     const iParam = trimmed.match(/[?&]i=([0-9]{1,128})/)
     if (iParam) return { kind: "provider", service: "apple_music", id: iParam[1] }
@@ -279,15 +440,12 @@ export function parseBiniLinkInput(raw: string): ParsedBiniLinkQuery | null {
     if (lastDigits) return { kind: "provider", service: "apple_music", id: lastDigits[1] }
   }
 
-  // 3. Tidal URL (tidal.com/browse/track/123 or tidal.com/track/123)
   const tidalUrl = trimmed.match(/tidal\.com\/(?:browse\/)?track\/([0-9]{1,128})/i)
   if (tidalUrl) return { kind: "provider", service: "tidal", id: tidalUrl[1] }
 
-  // 4. YouTube / YouTube Music URL
   const ytUrl = trimmed.match(/(?:v=|\/embed\/|\.be\/|\/v\/|watch\?v=|\/shorts\/)([A-Za-z0-9_-]{11})/)
   if (ytUrl) return { kind: "youtube", videoId: ytUrl[1] }
 
-  // 5. Prefixed service:id (e.g. spotify:..., apple_music:..., tidal:..., isrc:...)
   const prefixed = trimmed.match(/^(spotify|apple_music|apple|tidal|youtube|isrc)[:\s]+(.+)$/i)
   if (prefixed) {
     const svc = prefixed[1].toLowerCase()
@@ -299,37 +457,43 @@ export function parseBiniLinkInput(raw: string): ParsedBiniLinkQuery | null {
     if (svc === "tidal") return { kind: "provider", service: "tidal", id: val }
   }
 
-  // 6. 12-char ISRC (with or without hyphens, e.g. US-RC1-76-07839 or USRC17607839)
   const cleanAlnum = trimmed.replace(/[-\s]/g, "").toUpperCase()
   if (/^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$/.test(cleanAlnum)) {
     return { kind: "isrc", isrc: cleanAlnum }
   }
 
-  // 7. 22-char Spotify track ID
   if (/^[A-Za-z0-9]{22}$/.test(trimmed)) {
     return { kind: "provider", service: "spotify", id: trimmed }
   }
 
-  // 8. Decimal digits (Apple Music or Tidal track ID)
-  if (/^[0-9]{1,128}$/.test(trimmed)) {
+  if (/^[0-9]{6,128}$/.test(trimmed)) {
     return { kind: "numeric", id: trimmed }
   }
 
-  // 9. 11-char YouTube video ID
-  if (/^[A-Za-z0-9_-]{11}$/.test(trimmed)) {
+  if (/^[A-Za-z0-9_-]{11}$/.test(trimmed) && /[0-9_-]/.test(trimmed)) {
     return { kind: "youtube", videoId: trimmed }
   }
 
   return null
 }
 
+/**
+ * Unified Find Song + BiniLink Resolver:
+ * - If input is an ISRC or a Spotify/Apple Music/Tidal/YouTube URL or ID (or a specific provider filter is chosen),
+ *   resolves directly via https://link.binimum.org.
+ * - Otherwise searches songs by title, artist, or album just like the classic Find Song modal!
+ */
 export async function lookupBiniLink(
   query: string,
-  preferredService: "auto" | "isrc" | "spotify" | "apple_music" | "tidal" | "youtube" = "auto",
+  preferredService: "auto" | "search" | "isrc" | "spotify" | "apple_music" | "tidal" | "youtube" = "auto",
   signal?: AbortSignal,
 ): Promise<BiniLinkResolvedTrack[]> {
   const trimmed = query.trim()
   if (!trimmed) return []
+
+  if (preferredService === "search") {
+    return searchSongsViaBiniLink(trimmed, signal)
+  }
 
   if (preferredService !== "auto") {
     const parsed = parseBiniLinkInput(trimmed)
@@ -339,7 +503,7 @@ export async function lookupBiniLink(
     }
     if (preferredService === "youtube") {
       const vid = parsed?.kind === "youtube" ? parsed.videoId : trimmed
-      const hit = await matchYouTubeViaBiniLink(vid, signal)
+      const hit = await matchYouTubeViaBiniLink(vid, undefined, signal)
       return hit ? [hit] : []
     }
     const id = parsed && "id" in parsed ? parsed.id : trimmed
@@ -348,30 +512,28 @@ export async function lookupBiniLink(
   }
 
   const parsed = parseBiniLinkInput(trimmed)
-  if (!parsed) return []
-
-  if (parsed.kind === "isrc") {
-    const hit = await resolveIsrcWithMetadata(parsed.isrc, signal)
-    return hit ? [hit] : []
-  }
-  if (parsed.kind === "youtube") {
-    const hit = await matchYouTubeViaBiniLink(parsed.videoId, signal)
-    return hit ? [hit] : []
-  }
-  if (parsed.kind === "provider") {
-    const hit = await resolveProviderWithMetadata(parsed.service, parsed.id, signal)
-    return hit ? [hit] : []
-  }
-  if (parsed.kind === "numeric") {
-    const [appleHit, tidalHit] = await Promise.all([
-      resolveProviderWithMetadata("apple_music", parsed.id, signal),
-      resolveProviderWithMetadata("tidal", parsed.id, signal),
-    ])
-    const results: BiniLinkResolvedTrack[] = []
-    if (appleHit) results.push(appleHit)
-    if (tidalHit && (!appleHit || tidalHit.isrc !== appleHit.isrc)) results.push(tidalHit)
-    return results
+  if (parsed) {
+    if (parsed.kind === "isrc") {
+      const hit = await resolveIsrcWithMetadata(parsed.isrc, signal)
+      if (hit) return [hit]
+    } else if (parsed.kind === "youtube") {
+      const hit = await matchYouTubeViaBiniLink(parsed.videoId, undefined, signal)
+      if (hit) return [hit]
+    } else if (parsed.kind === "provider") {
+      const hit = await resolveProviderWithMetadata(parsed.service, parsed.id, signal)
+      if (hit) return [hit]
+    } else if (parsed.kind === "numeric") {
+      const [appleHit, tidalHit] = await Promise.all([
+        resolveProviderWithMetadata("apple_music", parsed.id, signal),
+        resolveProviderWithMetadata("tidal", parsed.id, signal),
+      ])
+      const results: BiniLinkResolvedTrack[] = []
+      if (appleHit) results.push(appleHit)
+      if (tidalHit && (!appleHit || tidalHit.isrc !== appleHit.isrc)) results.push(tidalHit)
+      if (results.length > 0) return results
+    }
   }
 
-  return []
+  // Default to Find Song by title, artist, or album!
+  return searchSongsViaBiniLink(trimmed, signal)
 }

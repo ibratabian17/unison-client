@@ -1,6 +1,6 @@
 import { resolveApiPath } from "./api-url"
 import { loadStoredSession } from "./auth"
-import { signPayload } from "./browser-identity"
+import { hasSigningKeyFor, signPayload } from "./browser-identity"
 import { AUTHED_FETCH_ERRORS, authedFetch } from "./authedFetch"
 import { IS_SPA_EXPANSION_SEED } from "./seed-flag"
 import type { ReportReason } from "./report-reasons"
@@ -371,7 +371,49 @@ export async function fetchMySubmissions(
 export async function submitLyrics(
   submission: import("./types").UnisonSubmission,
 ): Promise<{ id: number; created: boolean }> {
-  const signed = await signPayload(submission as unknown as Record<string, unknown>)
+  const session = loadStoredSession()
+  const payloadRecord = submission as unknown as Record<string, unknown>
+
+  if (session?.sessionToken) {
+    const bearerRes = await fetch(resolveApiPath("/lyrics/submit"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.sessionToken}`,
+        "X-Key-ID": session.keyId,
+      },
+      body: JSON.stringify(payloadRecord),
+    })
+
+    if (bearerRes.ok) {
+      const json = await bearerRes.json()
+      return json.data ?? { id: json.id, created: true }
+    }
+
+    const errJson = await bearerRes.json().catch(() => null)
+    if (errJson?.code === "INVALID_SIGNED_BODY" && hasSigningKeyFor(session.keyId)) {
+      const signed = await signPayload(payloadRecord)
+      const signedRes = await fetch(resolveApiPath("/lyrics/submit"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.sessionToken}`,
+          "X-Key-ID": session.keyId,
+        },
+        body: JSON.stringify(signed),
+      })
+      if (!signedRes.ok) {
+        const sErr = await signedRes.json().catch(() => null)
+        throw new Error(sErr?.hint ?? sErr?.error ?? `HTTP ${signedRes.status}`)
+      }
+      const sJson = await signedRes.json()
+      return sJson.data ?? { id: sJson.id, created: true }
+    }
+
+    throw new Error(errJson?.hint ?? errJson?.error ?? `HTTP ${bearerRes.status}`)
+  }
+
+  const signed = await signPayload(payloadRecord)
   const res = await fetch(resolveApiPath("/lyrics/submit"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -379,13 +421,47 @@ export async function submitLyrics(
   })
   if (!res.ok) {
     const errJson = await res.json().catch(() => null)
-    throw new Error(errJson?.error ?? `HTTP ${res.status}`)
+    throw new Error(errJson?.hint ?? errJson?.error ?? `HTTP ${res.status}`)
   }
   const json = await res.json()
   return json.data ?? { id: json.id, created: true }
 }
 
 export async function deleteLyrics(id: number): Promise<void> {
+  const session = loadStoredSession()
+
+  if (session?.sessionToken) {
+    const bearerRes = await fetch(resolveApiPath(`/lyrics/${id}`), {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${session.sessionToken}`,
+        "X-Key-ID": session.keyId,
+      },
+    })
+    if (bearerRes.ok) return
+
+    const errJson = await bearerRes.json().catch(() => null)
+    if (errJson?.code === "INVALID_SIGNED_BODY" && hasSigningKeyFor(session.keyId)) {
+      const signed = await signPayload()
+      const signedRes = await fetch(resolveApiPath(`/lyrics/${id}`), {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.sessionToken}`,
+          "X-Key-ID": session.keyId,
+        },
+        body: JSON.stringify(signed),
+      })
+      if (!signedRes.ok) {
+        const sErr = await signedRes.json().catch(() => null)
+        throw new Error(sErr?.hint ?? sErr?.error ?? `HTTP ${signedRes.status}`)
+      }
+      return
+    }
+
+    throw new Error(errJson?.hint ?? errJson?.error ?? `HTTP ${bearerRes.status}`)
+  }
+
   const signed = await signPayload()
   const res = await fetch(resolveApiPath(`/lyrics/${id}`), {
     method: "DELETE",
@@ -394,7 +470,7 @@ export async function deleteLyrics(id: number): Promise<void> {
   })
   if (!res.ok) {
     const errJson = await res.json().catch(() => null)
-    throw new Error(errJson?.error ?? `HTTP ${res.status}`)
+    throw new Error(errJson?.hint ?? errJson?.error ?? `HTTP ${res.status}`)
   }
 }
 
@@ -766,4 +842,216 @@ export async function requestLyrics(input: {
   }
   const json = await res.json()
   return json.data ?? { requestCount: 1, demand: 1 }
+}
+
+export interface RevisionPreviewData {
+  disposition: "immediate" | "pending"
+  confidence: number
+  drift: { textDrift: number; timingDrift: number }
+  linesChanged?: number
+}
+
+export async function previewLyricRevision(
+  lyricId: number,
+  input: {
+    lyrics: string
+    format: LyricsFormat | "auto"
+    videoId?: string
+    duration?: number
+    song?: string
+    artist?: string
+    album?: string
+    isrc?: string
+    language?: string
+  },
+): Promise<RevisionPreviewData | null> {
+  const session = loadStoredSession()
+  const payload: Record<string, unknown> = {
+    lyrics: input.lyrics,
+    format: input.format === "auto" ? "plain" : input.format,
+  }
+  if (input.language) payload.language = input.language
+  if (input.isrc) payload.isrc = input.isrc
+  if (input.album !== undefined) payload.album = input.album?.trim() || null
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" }
+  let bodyStr: string
+
+  if (session?.sessionToken) {
+    headers["Authorization"] = `Bearer ${session.sessionToken}`
+    headers["X-Key-ID"] = session.keyId
+    bodyStr = JSON.stringify(payload)
+  } else {
+    const signed = await signPayload(payload)
+    bodyStr = JSON.stringify(signed)
+  }
+
+  const res = await fetch(resolveApiPath(`/lyrics/${lyricId}/revisions/preview`), {
+    method: "POST",
+    headers,
+    body: bodyStr,
+  })
+
+  if (!res.ok) return null
+  const json = await res.json()
+  return json.data ?? null
+}
+
+export async function withdrawPendingRevision(lyricId: number): Promise<void> {
+  const session = loadStoredSession()
+  const headers: Record<string, string> = { "Content-Type": "application/json" }
+  let bodyStr: string
+
+  if (session?.sessionToken) {
+    headers["Authorization"] = `Bearer ${session.sessionToken}`
+    headers["X-Key-ID"] = session.keyId
+    bodyStr = JSON.stringify({})
+  } else {
+    const signed = await signPayload({})
+    bodyStr = JSON.stringify(signed)
+  }
+
+  const res = await fetch(resolveApiPath(`/lyrics/${lyricId}/revisions/pending`), {
+    method: "DELETE",
+    headers,
+    body: bodyStr,
+  })
+
+  if (!res.ok) {
+    const errJson = await res.json().catch(() => null)
+    throw new Error(errJson?.hint ?? errJson?.error ?? `HTTP ${res.status}`)
+  }
+}
+
+export async function fetchSuggestedVideosForSong(input: {
+  song: string
+  artist: string
+  album?: string
+  duration?: number
+  videoId?: string
+}): Promise<{ suggestions: VideoSuggestion[] }> {
+  try {
+    const session = loadStoredSession()
+    const headers: Record<string, string> = { "Content-Type": "application/json" }
+    let bodyStr: string
+    const payload: Record<string, unknown> = {
+      song: input.song,
+      artist: input.artist,
+      album: input.album ?? null,
+      duration: input.duration ?? 180,
+    }
+    if (input.videoId) payload.videoId = input.videoId
+
+    if (session?.sessionToken) {
+      headers["Authorization"] = `Bearer ${session.sessionToken}`
+      headers["X-Key-ID"] = session.keyId
+      bodyStr = JSON.stringify(payload)
+    } else {
+      const signed = await signPayload(payload)
+      bodyStr = JSON.stringify(signed)
+    }
+
+    const res = await fetch(resolveApiPath("/lyrics/suggested-videos"), {
+      method: "POST",
+      headers,
+      body: bodyStr,
+    })
+    if (!res.ok) return { suggestions: [] }
+    const json = await res.json()
+    return { suggestions: json.data?.suggestions ?? [] }
+  } catch {
+    return { suggestions: [] }
+  }
+}
+
+export interface BoostQuota {
+  used: number
+  total: number
+  resetsAt: number
+}
+
+export async function fetchBoostQuota(): Promise<BoostQuota | null> {
+  try {
+    const session = loadStoredSession()
+    if (!session?.sessionToken) return null
+    const res = await fetch(resolveApiPath("/lyrics/boost/quota"), {
+      headers: {
+        Authorization: `Bearer ${session.sessionToken}`,
+        "X-Key-ID": session.keyId,
+      },
+    })
+    if (!res.ok) return null
+    const json = await res.json()
+    return json.quota ?? null
+  } catch {
+    return null
+  }
+}
+
+export async function boostVariant(id: number): Promise<{ quota?: BoostQuota }> {
+  const session = loadStoredSession()
+  if (!session?.sessionToken) throw new Error("AUTH_REQUIRED")
+  const res = await fetch(resolveApiPath(`/lyrics/${id}/boost`), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${session.sessionToken}`,
+      "X-Key-ID": session.keyId,
+    },
+  })
+  if (!res.ok) {
+    const errJson = await res.json().catch(() => null)
+    throw new Error(errJson?.hint ?? errJson?.error ?? `HTTP ${res.status}`)
+  }
+  const json = await res.json()
+  return { quota: json.quota }
+}
+
+export async function unboostVariant(id: number): Promise<void> {
+  const session = loadStoredSession()
+  if (!session?.sessionToken) throw new Error("AUTH_REQUIRED")
+  const res = await fetch(resolveApiPath(`/lyrics/${id}/boost`), {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${session.sessionToken}`,
+      "X-Key-ID": session.keyId,
+    },
+  })
+  if (!res.ok) {
+    const errJson = await res.json().catch(() => null)
+    throw new Error(errJson?.hint ?? errJson?.error ?? `HTTP ${res.status}`)
+  }
+}
+
+export interface UserFulfillmentStats {
+  requestsFulfilled: number
+  totalDemandFulfilled: number
+}
+
+export async function fetchUserFulfillmentStats(keyId: string): Promise<UserFulfillmentStats | null> {
+  try {
+    const res = await fetch(resolveApiPath(`/users/${encodeURIComponent(keyId)}/stats`))
+    if (!res.ok) return null
+    const json = await res.json()
+    return json.data ?? null
+  } catch {
+    return null
+  }
+}
+
+export interface SongRankResponse {
+  ranked: boolean
+  rank?: number
+  demand?: number
+  requestCount?: number
+}
+
+export async function fetchSongRank(videoId: string): Promise<SongRankResponse> {
+  try {
+    const res = await fetch(resolveApiPath(`/leaderboard/songs/${encodeURIComponent(videoId)}`))
+    if (!res.ok) return { ranked: false }
+    const json = await res.json()
+    return json.data ?? { ranked: false }
+  } catch {
+    return { ranked: false }
+  }
 }

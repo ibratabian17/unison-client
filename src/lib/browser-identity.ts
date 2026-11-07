@@ -1,9 +1,11 @@
 import type { SignedBody } from "./auth"
+import { loadStoredSession } from "./auth"
 import { canonicalJson } from "./canonical-json"
 
 const ECDSA_P256 = { name: "ECDSA", namedCurve: "P-256" } as const
 const ECDSA_SHA256 = { name: "ECDSA", hash: "SHA-256" } as const
 const STORAGE_KEY = "unison.browser.identity.v1"
+const KEY_PREFIX = "unison.identity."
 
 export interface BrowserIdentity {
   version: 1
@@ -17,29 +19,6 @@ function toBase64(buffer: ArrayBuffer): string {
   let binary = ""
   for (const byte of new Uint8Array(buffer)) binary += String.fromCharCode(byte)
   return btoa(binary)
-}
-
-async function hashPublicKey(jwk: JsonWebKey): Promise<string> {
-  const canonical = canonicalJson({ crv: jwk.crv, kty: jwk.kty, x: jwk.x, y: jwk.y })
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical))
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("")
-}
-
-export function getStoredBrowserIdentity(): BrowserIdentity {
-  const stored = localStorage.getItem(STORAGE_KEY)
-  if (stored) {
-    try {
-      const parsed = JSON.parse(stored) as BrowserIdentity
-      if (parsed && parsed.keyId && parsed.publicKey && parsed.privateKey) {
-        return parsed
-      }
-    } catch {}
-  }
-  return DEFAULT_IDENTITY as unknown as BrowserIdentity
-}
-
-export async function signChallengeWithBrowserIdentity(nonce: string): Promise<SignedBody> {
-  return signChallengeWithDefaultIdentity(nonce)
 }
 
 export const DEFAULT_IDENTITY = {
@@ -62,13 +41,15 @@ export const DEFAULT_IDENTITY = {
     x: "FyXkTGfDo1ySYc8VOoSoXLxJ7b1shp9nPv4NDwPDvy4",
     y: "9DrxMD9jEhSo1tqOZf1k8x6DinRC9V2T4yB3FkwOGjI",
   },
-  displayName: "MysticSnareRise",
+  displayName: "Public Account",
   exportedAt: 1774034657074,
-} as const;
+} as const
 
-import { loadStoredSession } from "./auth"
-
-export function saveActiveBrowserIdentity(identity: { keyId: string; publicKey: JsonWebKey; privateKey: JsonWebKey }): void {
+export function saveActiveBrowserIdentity(identity: {
+  keyId: string
+  publicKey: JsonWebKey
+  privateKey: JsonWebKey
+}): void {
   const full: BrowserIdentity = {
     version: 1,
     keyId: identity.keyId,
@@ -77,40 +58,107 @@ export function saveActiveBrowserIdentity(identity: { keyId: string; publicKey: 
     createdAt: Date.now(),
   }
   localStorage.setItem(STORAGE_KEY, JSON.stringify(full))
+  if (identity.keyId !== DEFAULT_IDENTITY.keyId) {
+    localStorage.setItem(`${KEY_PREFIX}${identity.keyId}`, JSON.stringify(full))
+  }
 }
 
-export async function getActiveSigningIdentity(): Promise<{ keyId: string; publicKey: JsonWebKey; privateKey: JsonWebKey }> {
-  const session = loadStoredSession()
-  const stored = localStorage.getItem(STORAGE_KEY)
-  let parsed: BrowserIdentity | null = null
-  if (stored) {
+export function clearActiveBrowserIdentity(): void {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<BrowserIdentity>
+      if (parsed?.keyId === DEFAULT_IDENTITY.keyId) {
+        localStorage.removeItem(STORAGE_KEY)
+      }
+    }
+  } catch {
+    localStorage.removeItem(STORAGE_KEY)
+  }
+}
+
+export function hasSigningKeyFor(keyId: string): boolean {
+  if (keyId === DEFAULT_IDENTITY.keyId) return true
+  const dedicated = localStorage.getItem(`${KEY_PREFIX}${keyId}`)
+  if (dedicated) {
     try {
-      parsed = JSON.parse(stored) as BrowserIdentity
+      const p = JSON.parse(dedicated)
+      if (p?.keyId === keyId && p.privateKey) return true
     } catch {}
   }
-
-  // If stored identity matches active session, use it
-  if (session && parsed && parsed.keyId === session.keyId && parsed.privateKey) {
-    return parsed
+  const general = localStorage.getItem(STORAGE_KEY)
+  if (general) {
+    try {
+      const p = JSON.parse(general)
+      if (p?.keyId === keyId && p.privateKey) return true
+    } catch {}
   }
+  return false
+}
 
-  // If active session is the default identity, use default identity
+export async function getActiveSigningIdentity(): Promise<{
+  keyId: string
+  publicKey: JsonWebKey
+  privateKey: JsonWebKey
+}> {
+  const session = loadStoredSession()
+
+  // Case 1: If session is explicitly the Public Account
   if (session && session.keyId === DEFAULT_IDENTITY.keyId) {
     return DEFAULT_IDENTITY as unknown as { keyId: string; publicKey: JsonWebKey; privateKey: JsonWebKey }
   }
 
-  // If a stored identity exists, use it
-  if (parsed && parsed.keyId && parsed.privateKey) {
-    return parsed
+  // Case 2: If session is logged in as a specific account, find its dedicated signing key
+  if (session && session.keyId) {
+    const dedicated = localStorage.getItem(`${KEY_PREFIX}${session.keyId}`)
+    if (dedicated) {
+      try {
+        const parsed = JSON.parse(dedicated) as BrowserIdentity
+        if (parsed?.keyId === session.keyId && parsed.privateKey) {
+          return parsed
+        }
+      } catch {}
+    }
+
+    const general = localStorage.getItem(STORAGE_KEY)
+    if (general) {
+      try {
+        const parsed = JSON.parse(general) as BrowserIdentity
+        if (parsed?.keyId === session.keyId && parsed.privateKey) {
+          return parsed
+        }
+      } catch {}
+    }
+
+    // Never silently fall back to DEFAULT_IDENTITY (Public Account) when signed into a personal account
+    throw new Error(
+      `Signed in as ${session.displayName || session.keyId.slice(0, 8) + "…"}, but no local signing key was found for this session.`,
+    )
   }
 
-  // Fallback to DEFAULT_IDENTITY
+  // Case 3: If not logged in, check if a non-default stored key exists
+  const stored = localStorage.getItem(STORAGE_KEY)
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored) as BrowserIdentity
+      if (parsed && parsed.keyId && parsed.privateKey && parsed.keyId !== DEFAULT_IDENTITY.keyId) {
+        return parsed
+      }
+    } catch {}
+  }
+
+  // Fallback to Public Account only when signed out
   return DEFAULT_IDENTITY as unknown as { keyId: string; publicKey: JsonWebKey; privateKey: JsonWebKey }
 }
 
 export async function signChallengeWithDefaultIdentity(nonce: string): Promise<SignedBody> {
-  saveActiveBrowserIdentity(DEFAULT_IDENTITY as unknown as BrowserIdentity)
-  const key = await crypto.subtle.importKey("jwk", DEFAULT_IDENTITY.privateKey as unknown as JsonWebKey, ECDSA_P256, false, ["sign"])
+  const key = await crypto.subtle.importKey(
+    "jwk",
+    DEFAULT_IDENTITY.privateKey as unknown as JsonWebKey,
+    ECDSA_P256,
+    false,
+    ["sign"],
+  )
   const payload = {
     origin: window.location.origin,
     timestamp: Date.now(),
@@ -120,7 +168,7 @@ export async function signChallengeWithDefaultIdentity(nonce: string): Promise<S
   const signature = await crypto.subtle.sign(
     ECDSA_SHA256,
     key,
-    new TextEncoder().encode(canonicalJson(payload))
+    new TextEncoder().encode(canonicalJson(payload)),
   )
   return {
     payload,
@@ -144,7 +192,7 @@ export async function signPayload(data: Record<string, unknown> = {}): Promise<S
   const signature = await crypto.subtle.sign(
     ECDSA_SHA256,
     key,
-    new TextEncoder().encode(canonicalJson(payload))
+    new TextEncoder().encode(canonicalJson(payload)),
   )
 
   return {

@@ -5,6 +5,7 @@ import { Tooltip } from "@/components/Tooltip"
 import { VoteControls } from "@/components/VoteControls"
 import { EditMetadataButton } from "@/components/council/EditMetadataButton"
 import { SealLyricButton } from "@/components/council/SealLyricButton"
+import { BoostLyricButton } from "@/components/council/BoostLyricButton"
 import { IconSwap } from "@/components/icons/IconSwap"
 import { PlayPauseIcon } from "@/components/icons/PlaybackIcons"
 import { YouTubeMusicIcon } from "@/components/icons/YouTubeMusicIcon"
@@ -254,6 +255,7 @@ export function SongHero({
               current={{ song: variant.song, artist: variant.artist, album: variant.album ?? null }}
             />
             <SealLyricButton videoId={variant.videoId} lyricsId={variant.id} />
+            <BoostLyricButton lyricsId={variant.id} />
             {onDelete ? (
               <button
                 type="button"

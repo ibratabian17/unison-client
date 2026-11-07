@@ -11,7 +11,11 @@ import {
 } from "@/lib/auth"
 import { BL_EXTENSION_ID, findBetterLyrics, signInWithBetterLyrics } from "@/lib/extension"
 import { signInWithIdentityFile } from "@/lib/identity-file"
-import { signChallengeWithDefaultIdentity, exportBrowserIdentityFile } from "@/lib/browser-identity"
+import {
+  clearActiveBrowserIdentity,
+  exportBrowserIdentityFile,
+  signChallengeWithDefaultIdentity,
+} from "@/lib/browser-identity"
 import { type ReactNode, createContext, useCallback, useContext, useEffect, useRef, useState } from "react"
 
 type SessionState =
@@ -166,6 +170,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const stored = loadStoredSession()
     if (stored) revokeSession(stored.sessionToken).catch(() => {})
     clearStoredSession()
+    clearActiveBrowserIdentity()
     setPhase({ kind: "signed-out" })
   }, [])
 
