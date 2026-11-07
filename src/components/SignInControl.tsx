@@ -294,7 +294,7 @@ export function SignInControl({ glass = false }: { glass?: boolean }) {
               className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm text-unison-text transition-colors hover:bg-unison-bg-hover disabled:cursor-not-allowed disabled:opacity-50"
             >
               <IconUser className="size-4 text-unison-text-secondary" stroke={1.5} />
-              Use browser key
+              Log in as Public Account
             </button>
             {session.status === "error" ? (
               <p role="alert" className="px-2 pt-1 text-xs text-red-400">
