@@ -150,6 +150,7 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
   const [diffMode, setDiffMode] = useState<DiffMode>("unified")
   const [saving, setSaving] = useState(false)
   const [finderOpen, setFinderOpen] = useState(false)
+  const [confirmReplaceOpen, setConfirmReplaceOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [previewData, setPreviewData] = useState<RevisionPreviewData | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
@@ -214,6 +215,7 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
     setError(null)
     setPreviewData(null)
     setConfirmWithdraw(false)
+    setConfirmReplaceOpen(false)
   }, [
     isOpen,
     variant.id,
@@ -306,8 +308,7 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
   const isSealed = Boolean(variant.marks?.some((m) => m.type === "seal"))
   const canDeleteOldWithoutPenalty = !isSealed && !(variant.voteCount >= 2 && variant.effectiveScore < 0)
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const executeSave = async () => {
     if (!trimmedSong || !trimmedArtist) {
       setError("Song title and artist cannot be empty.")
       return
@@ -419,10 +420,11 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
           await linkVideoToLyric(created.id, extraVid).catch(() => {})
         }
 
+        setConfirmReplaceOpen(false)
         pushToast({
           kind: "success",
           message: deletedFirst
-            ? "Updated song details and lyrics"
+            ? "Replaced variant with updated song details"
             : "Submitted updated variant with new song details",
         })
         onSaved(created.id)
@@ -444,10 +446,28 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
         throw submitErr
       }
     } catch (err) {
+      setConfirmReplaceOpen(false)
       setError(err instanceof Error ? err.message : "Failed to save revision")
     } finally {
       setSaving(false)
     }
+  }
+
+  const handleSave = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!trimmedSong || !trimmedArtist) {
+      setError("Song title and artist cannot be empty.")
+      return
+    }
+    if (!lyrics.trim()) {
+      setError("Lyrics content cannot be empty.")
+      return
+    }
+    if (titleOrArtistChanged && role === null) {
+      setConfirmReplaceOpen(true)
+      return
+    }
+    void executeSave()
   }
 
   const handleWithdrawPending = async () => {
@@ -621,6 +641,32 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
                 ) : null}
               </div>
             </div>
+
+            {titleOrArtistChanged && role === null ? (
+              <Callout
+                tone="warn"
+                icon={<IconAlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" stroke={1.5} />}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span>
+                    <b>Renaming title or artist without Council privileges replaces this variant.</b>{" "}
+                    {canDeleteOldWithoutPenalty
+                      ? `Variant #${variant.id} will be deleted and re-submitted as a new variant, resetting votes (${variant.upvotes ?? 0} up / ${variant.downvotes ?? 0} down) and revision history (Rev ${liveRevNo} → Rev 1). Linked videos are preserved.`
+                      : "Because this variant is sealed or net-downvoted, a new variant will be submitted alongside it starting at 0 votes and Rev 1."}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSong(variant.song)
+                      setArtist(variant.artist)
+                    }}
+                    className="shrink-0 font-semibold text-unison-text underline transition-opacity hover:opacity-80"
+                  >
+                    Reset title &amp; artist
+                  </button>
+                </div>
+              </Callout>
+            ) : null}
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div className="space-y-1">
@@ -863,16 +909,18 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
                 ) : hasAnyChange ? (
                   <Callout
                     tone={
-                      titleOrArtistChanged && role !== null
+                      titleOrArtistChanged
                         ? "warn"
-                        : previewData.outcome?.goesLive || (titleOrArtistChanged && role === null)
+                        : previewData.outcome?.goesLive
                           ? "plain"
                           : "warn"
                     }
                     icon={
                       titleOrArtistChanged && role !== null ? (
                         <IconRosetteDiscountCheck aria-hidden className="mt-0.5 size-4 shrink-0" stroke={1.5} />
-                      ) : previewData.outcome?.goesLive || (titleOrArtistChanged && role === null) ? (
+                      ) : titleOrArtistChanged && role === null ? (
+                        <IconAlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" stroke={1.5} />
+                      ) : previewData.outcome?.goesLive ? (
                         <IconCheck aria-hidden className="mt-0.5 size-4 shrink-0 text-unison-text" stroke={1.75} />
                       ) : (
                         <IconRosetteDiscountCheck aria-hidden className="mt-0.5 size-4 shrink-0" stroke={1.5} />
@@ -890,9 +938,9 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
                           </>
                         ) : titleOrArtistChanged && role === null ? (
                           <>
-                            <b>Replaces variant with updated title &amp; artist.</b>{" "}
+                            <b>Replaces variant and resets vote &amp; revision history.</b>{" "}
                             {canDeleteOldWithoutPenalty
-                              ? "Your previous submission and linked videos will be carried over."
+                              ? "You will be asked to confirm before deleting and re-submitting."
                               : "Submitted as a new variant on this video."}
                           </>
                         ) : previewData.outcome?.goesLive ? (
@@ -951,7 +999,7 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
                 {titleOrArtistChanged
                   ? role !== null
                     ? "Title & artist changes will be proposed to the Council."
-                    : "Title & artist changes will update your submission."
+                    : "Renaming title or artist without Council replaces this variant."
                   : "Edit song title, artist, metadata, or synced lyrics."}
               </span>
             )}
@@ -984,13 +1032,105 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
                   ? "Saving…"
                   : titleOrArtistChanged && role !== null && !revisionFieldsChanged
                     ? "Propose details"
-                    : previewData && !previewData.outcome?.goesLive && !previewData.noChanges && !titleOrArtistChanged
-                      ? "Submit for review"
-                      : "Save revision"}
+                    : titleOrArtistChanged && role === null
+                      ? "Replace & rename…"
+                      : previewData && !previewData.outcome?.goesLive && !previewData.noChanges && !titleOrArtistChanged
+                        ? "Submit for review"
+                        : "Save revision"}
               </button>
             </div>
           </div>
         </form>
+      </CouncilOverlay>
+
+      <CouncilOverlay
+        open={confirmReplaceOpen}
+        onOpenChange={(val) => {
+          if (!val && !saving) setConfirmReplaceOpen(false)
+        }}
+        label="Confirm variant replacement"
+        className="top-1/2 w-[min(480px,calc(100vw-32px))] -translate-y-1/2 px-6 py-5"
+      >
+        <div className="flex flex-col gap-4">
+          <div className="flex items-start gap-3">
+            <div className="grid size-9 shrink-0 place-items-center rounded-full bg-amber-500/15 text-unison-warn">
+              <IconAlertTriangle className="size-5" stroke={1.75} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-base font-semibold text-unison-text">
+                Replace variant to rename title or artist?
+              </h2>
+              <p className="mt-1 text-xs leading-relaxed text-unison-text-secondary">
+                Only Council members can rename a song title or artist in-place. On a regular account, renaming requires deleting your current variant and submitting a replacement.
+              </p>
+            </div>
+          </div>
+
+          <div className="space-y-2 rounded-[12px] bg-white/[0.04] p-3.5 text-xs text-unison-text-secondary shadow-[inset_0_1px_0_rgba(255,255,255,0.06),inset_0_0_0_1px_rgba(255,255,255,0.06)]">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-unison-text-muted">Before</span>
+              <span className="truncate font-medium text-unison-text">
+                {variant.song} · {variant.artist}
+              </span>
+            </div>
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-unison-text-muted">After</span>
+              <span className="truncate font-medium text-unison-text">
+                {trimmedSong} · {trimmedArtist}
+              </span>
+            </div>
+          </div>
+
+          <ul className="list-disc space-y-1.5 pl-4 text-xs leading-relaxed text-unison-text-secondary">
+            <li>
+              <b className="text-unison-text">Vote data will be lost:</b> Current votes ({variant.upvotes ?? 0} up / {variant.downvotes ?? 0} down, score {variant.effectiveScore}) will reset to 0.
+            </li>
+            <li>
+              <b className="text-unison-text">Revision history will reset:</b> Revision history (currently Rev {liveRevNo}) will restart at Rev 1 with a new variant ID.
+            </li>
+            <li>
+              <b className="text-unison-text">Linked videos are kept:</b> Secondary YouTube video links attached to this variant will be automatically re-linked.
+            </li>
+            <li>
+              <b className="text-unison-text">Council metadata lock:</b> If the Council has previously approved locked metadata for this video, the server will keep the Council’s approved title and artist.
+            </li>
+          </ul>
+
+          <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => setConfirmReplaceOpen(false)}
+              className={isNew ? chipClass : buttonClass("ghost", "sm")}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => {
+                setSong(variant.song)
+                setArtist(variant.artist)
+                setConfirmReplaceOpen(false)
+              }}
+              className={isNew ? chipClass : buttonClass("fill", "sm")}
+            >
+              Keep original title &amp; artist
+            </button>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => void executeSave()}
+              className={
+                isNew
+                  ? cn(raisedChipClass, "bg-red-500/25 text-[#fecaca] hover:bg-red-500/35")
+                  : buttonClass("danger", "sm")
+              }
+            >
+              {saving ? "Replacing…" : "Replace & rename"}
+            </button>
+          </div>
+        </div>
       </CouncilOverlay>
 
       <MetadataFinderModal

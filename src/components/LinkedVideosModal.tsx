@@ -22,6 +22,7 @@ import { cn } from "@/lib/cn"
 import { extractVideoId } from "@/lib/lyrics-parser"
 import { pushToast } from "@/lib/toast"
 import type { LinkedVideo, VariantFull, VideoSuggestion } from "@/lib/types"
+import { fetchVideoMetadata, type VideoMetadata } from "@/lib/video-metadata"
 import { youTubeMusicUrl } from "@/lib/youtube-music"
 
 interface LinkedVideosModalProps {
@@ -39,6 +40,8 @@ const solidFieldClass =
 
 const SUGGESTED_PAGE_SIZE = 5
 
+const videoMetaCache = new Map<string, VideoMetadata>()
+
 function formatSec(sec?: number): string {
   if (!sec || sec <= 0) return ""
   const m = Math.floor(sec / 60)
@@ -48,6 +51,35 @@ function formatSec(sec?: number): string {
 
 function normalizeTitle(title: string): string {
   return title.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase()
+}
+
+function VideoThumb({
+  videoId,
+  src,
+  alt = "",
+}: {
+  videoId: string
+  src?: string | null
+  alt?: string
+}) {
+  const [imgSrc, setImgSrc] = useState(src || `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`)
+
+  useEffect(() => {
+    setImgSrc(src || `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`)
+  }, [videoId, src])
+
+  return (
+    <img
+      src={imgSrc}
+      alt={alt}
+      loading="lazy"
+      onError={() => {
+        const fallback = `https://i.ytimg.com/vi/${videoId}/default.jpg`
+        if (imgSrc !== fallback) setImgSrc(fallback)
+      }}
+      className="size-10 shrink-0 rounded-lg object-cover outline outline-1 -outline-offset-1 outline-white/10 bg-unison-bg-hover"
+    />
+  )
 }
 
 export function LinkedVideosModal({
@@ -66,6 +98,7 @@ export function LinkedVideosModal({
     : "flex items-center justify-between gap-3 rounded-[10px] bg-white/[0.02] px-3.5 py-2.5 shadow-[inset_0_0_0_1px_var(--color-unison-border)]"
 
   const [videos, setVideos] = useState<LinkedVideo[]>([])
+  const [metaMap, setMetaMap] = useState<Record<string, VideoMetadata>>({})
   const [suggestions, setSuggestions] = useState<VideoSuggestion[]>([])
   const [newVideoInput, setNewVideoInput] = useState("")
   const [loading, setLoading] = useState(false)
@@ -113,6 +146,44 @@ export function LinkedVideosModal({
   }, [isOpen, variant.id, variant.videoId, isOwner])
 
   useEffect(() => {
+    if (!isOpen || videos.length === 0) return
+    let cancelled = false
+
+    const cached: Record<string, VideoMetadata> = {}
+    const toFetch: string[] = []
+
+    for (const v of videos) {
+      const hit = videoMetaCache.get(v.videoId)
+      if (hit) {
+        cached[v.videoId] = hit
+      } else {
+        toFetch.push(v.videoId)
+      }
+    }
+
+    if (Object.keys(cached).length > 0) {
+      setMetaMap((prev) => ({ ...prev, ...cached }))
+    }
+
+    if (toFetch.length > 0) {
+      void Promise.all(
+        toFetch.map(async (vid) => {
+          const meta = await fetchVideoMetadata(vid)
+          if (!meta) return
+          videoMetaCache.set(vid, meta)
+          if (!cancelled) {
+            setMetaMap((prev) => ({ ...prev, [vid]: meta }))
+          }
+        }),
+      )
+    }
+
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, videos])
+
+  useEffect(() => {
     if (!confirmUnlinkId) return
     const timer = window.setTimeout(() => setConfirmUnlinkId(null), 4000)
     return () => window.clearTimeout(timer)
@@ -120,7 +191,7 @@ export function LinkedVideosModal({
 
   if (!isOpen) return null
 
-  const handleLink = async (videoIdToLink?: string) => {
+  const handleLink = async (videoIdToLink?: string, sugMeta?: VideoSuggestion) => {
     const raw = videoIdToLink ?? newVideoInput
     const cleanId = extractVideoId(raw)
     if (!/^[a-zA-Z0-9_-]{11}$/.test(cleanId)) {
@@ -135,6 +206,20 @@ export function LinkedVideosModal({
     try {
       setLinkingId(cleanId)
       setError(null)
+      if (sugMeta) {
+        const enriched: VideoMetadata = {
+          title: sugMeta.title,
+          artist: sugMeta.artist || sugMeta.author || variant.artist,
+          song: sugMeta.title,
+          authorName: sugMeta.artist || sugMeta.author || "",
+          thumbnailUrl:
+            sugMeta.artworkUrl ||
+            sugMeta.thumbnailUrl ||
+            `https://i.ytimg.com/vi/${cleanId}/mqdefault.jpg`,
+        }
+        videoMetaCache.set(cleanId, enriched)
+        setMetaMap((prev) => ({ ...prev, [cleanId]: enriched }))
+      }
       const res = await linkVideoToLyric(variant.id, cleanId)
       setVideos(res.videos)
       if (!videoIdToLink) setNewVideoInput("")
@@ -174,30 +259,34 @@ export function LinkedVideosModal({
     const level = sug.match?.level
     const isConfirming = confirmLinkSug?.videoId === sug.videoId
     const busy = linkingId === sug.videoId
+    const thumbSrc = sug.artworkUrl || sug.thumbnailUrl || `https://i.ytimg.com/vi/${sug.videoId}/mqdefault.jpg`
 
     return (
       <li key={sug.videoId} className="space-y-2">
         <div className={rowClass}>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <a
-                href={youTubeMusicUrl(sug.videoId)}
-                target="_blank"
-                rel="noopener noreferrer"
-                title={sug.videoId}
-                className="inline-flex min-w-0 items-center gap-1.5 text-[13px] font-medium text-unison-text transition-colors hover:underline"
-              >
-                <span className="truncate">{sug.title}</span>
-                <IconExternalLink aria-hidden className="size-3 shrink-0 text-unison-text-muted" stroke={1.5} />
-              </a>
-              {level ? (
-                <Chip tone={level === "same" ? "good" : level === "related" ? "warn" : "plain"}>
-                  {level === "same" ? "Same song" : level === "related" ? "Related" : "Different"}
-                </Chip>
-              ) : null}
-            </div>
-            <div className="mt-0.5 truncate text-xs text-unison-text-muted">
-              {[sug.artist || sug.author, sug.album, formatSec(dur), sug.videoId].filter(Boolean).join(" · ")}
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <VideoThumb videoId={sug.videoId} src={thumbSrc} alt={sug.title} />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <a
+                  href={youTubeMusicUrl(sug.videoId)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={sug.videoId}
+                  className="inline-flex min-w-0 items-center gap-1.5 text-[13px] font-medium text-unison-text transition-colors hover:underline"
+                >
+                  <span className="truncate">{sug.title}</span>
+                  <IconExternalLink aria-hidden className="size-3 shrink-0 text-unison-text-muted" stroke={1.5} />
+                </a>
+                {level ? (
+                  <Chip tone={level === "same" ? "good" : level === "related" ? "warn" : "plain"}>
+                    {level === "same" ? "Same song" : level === "related" ? "Related" : "Different"}
+                  </Chip>
+                ) : null}
+              </div>
+              <div className="mt-0.5 truncate text-xs text-unison-text-muted">
+                {[sug.artist || sug.author, sug.album, formatSec(dur), sug.videoId].filter(Boolean).join(" · ")}
+              </div>
             </div>
           </div>
 
@@ -211,7 +300,7 @@ export function LinkedVideosModal({
                   setConfirmLinkSug(sug)
                   return
                 }
-                void handleLink(sug.videoId)
+                void handleLink(sug.videoId, sug)
               }}
               className={
                 isNew
@@ -243,7 +332,7 @@ export function LinkedVideosModal({
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => void handleLink(sug.videoId)}
+                  onClick={() => void handleLink(sug.videoId, sug)}
                   className={isNew ? raisedChipClass : buttonClass("primary", "sm")}
                 >
                   {busy ? "Adding…" : "Add video"}
@@ -302,8 +391,8 @@ export function LinkedVideosModal({
           <BlockHead title="Linked videos" aside={`${videos.length}`} />
           {loading ? (
             <div className="space-y-2">
-              <Bone className="h-11 w-full rounded-[10px]" />
-              <Bone className="h-11 w-full rounded-[10px]" />
+              <Bone className="h-14 w-full rounded-[10px]" />
+              <Bone className="h-14 w-full rounded-[10px]" />
             </div>
           ) : (
             <ul className="space-y-2">
@@ -311,17 +400,36 @@ export function LinkedVideosModal({
                 const isPrimary = item.primary || item.isPrimary || item.videoId === variant.videoId
                 const confirming = confirmUnlinkId === item.videoId
                 const busy = unlinkingId === item.videoId
+                const meta = metaMap[item.videoId]
+                const displayTitle = meta?.title || (isPrimary ? `${variant.song} · ${variant.artist}` : item.videoId)
+                const sublineParts = [
+                  meta?.authorName || (isPrimary ? variant.artist : undefined),
+                  item.videoId,
+                ].filter(Boolean)
+
                 return (
                   <li key={item.videoId} className={rowClass}>
-                    <a
-                      href={youTubeMusicUrl(item.videoId)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 font-mono text-[13px] font-medium text-unison-text transition-colors hover:underline"
-                    >
-                      <span>{item.videoId}</span>
-                      <IconExternalLink aria-hidden className="size-3.5 text-unison-text-muted" stroke={1.5} />
-                    </a>
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                      <VideoThumb
+                        videoId={item.videoId}
+                        src={meta?.thumbnailUrl}
+                        alt={displayTitle}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <a
+                          href={youTubeMusicUrl(item.videoId)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex max-w-full items-center gap-1.5 text-[13px] font-medium text-unison-text transition-colors hover:underline"
+                        >
+                          <span className="truncate">{displayTitle}</span>
+                          <IconExternalLink aria-hidden className="size-3.5 shrink-0 text-unison-text-muted" stroke={1.5} />
+                        </a>
+                        <div className="mt-0.5 truncate font-mono text-xs text-unison-text-muted">
+                          {sublineParts.join(" · ")}
+                        </div>
+                      </div>
+                    </div>
 
                     {isPrimary ? (
                       <Chip>Primary</Chip>
@@ -392,8 +500,8 @@ export function LinkedVideosModal({
             <BlockHead title="Suggested videos" />
             {loading ? (
               <div className="space-y-2">
-                <Bone className="h-12 w-full rounded-[10px]" />
-                <Bone className="h-12 w-full rounded-[10px]" />
+                <Bone className="h-14 w-full rounded-[10px]" />
+                <Bone className="h-14 w-full rounded-[10px]" />
               </div>
             ) : unlinkedSuggestions.length === 0 ? (
               <p className="text-[13px] text-unison-text-muted">No suggested videos found for this track.</p>

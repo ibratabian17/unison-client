@@ -1,4 +1,3 @@
-import type { PendingReason } from "./council-types"
 import type {
   DiffPart,
   DiffRow,
@@ -9,20 +8,45 @@ import type {
   RevisionStatus,
   RevisionSummary,
 } from "./revision-types"
+import type { PendingReason } from "./council-types"
+import type { ReportReason } from "./report-reasons"
 
+export type Confidence = "low" | "medium" | "high"
 export type LyricsFormat = "ttml" | "lrc" | "plain"
 export type SyncType = "richsync" | "linesync" | "plain"
-export type Confidence = "low" | "medium" | "high"
+export type TierName = "legendary" | "grandmaster" | "master" | "elite" | "lyricist"
+export type BadgeRarity = "common" | "uncommon" | "rare" | "epic" | "legendary"
+export type BadgeCategory = "submissions" | "voting" | "community" | "special"
 
-export interface SongLeaderboardEntry {
-  videoId: string
-  song: string
-  artist: string
-  thumbnailUrl: string | null
-  demand: number
-  requestCount: number
-  section: "most_wanted" | "needs_fixing"
-  rank: number
+export interface BadgeImage {
+  earned: string
+  silhouette: string
+  mono?: string
+}
+
+export interface BadgeTier {
+  tier: number
+  threshold: number
+  name: string
+  description: string
+  rarity: BadgeRarity
+  image: BadgeImage
+}
+
+export interface BadgeDef {
+  key: string
+  name: string
+  description: string
+  category: BadgeCategory
+  rarity?: BadgeRarity
+  secret?: boolean
+  attainable?: boolean
+  image: BadgeImage
+  tiers?: BadgeTier[]
+}
+
+export interface BadgeCatalogue {
+  badges: BadgeDef[]
 }
 
 export interface LeaderboardBadge {
@@ -39,258 +63,94 @@ export interface CuratorLeaderboardEntry {
   submissionCount: number
   totalUpvotes: number
   rank: number
-  community?: boolean
   discordLinked: boolean
-  tier?: string | null
+  tier?: TierName | null
+  level?: number
+  levelProgress?: number | null
+  badgeCount?: number
   topBadge?: LeaderboardBadge | null
   featured?: LeaderboardBadge[]
-  badgeCount?: number
   avatarUrl?: string | null
-}
-
-export interface SongsLeaderboardResponse {
-  mostWanted: SongLeaderboardEntry[]
-  needsFixing: SongLeaderboardEntry[]
+  discordUsername?: string | null
+  discordId?: string | null
 }
 
 export interface CuratorsLeaderboardResponse {
-  curators: CuratorLeaderboardEntry[]
+  entries: CuratorLeaderboardEntry[]
+  totalCurators: number
+  updatedAt?: number
 }
 
-export type ApiEnvelope<T> = { success: true; data: T } | { success: false; error: string }
+export interface SongLeaderboardEntry {
+  videoId: string
+  song: string
+  artist: string
+  album?: string | null
+  demand: number
+  requestCount: number
+  rank: number
+  thumbnailUrl?: string | null
+}
+
+export interface SongsLeaderboardResponse {
+  entries: SongLeaderboardEntry[]
+  totalSongs: number
+  updatedAt?: number
+}
 
 export interface UserStats {
   keyId: string
   displayName: string
-  handle?: string | null
-  community?: boolean
-  lastVoteAt: number | null
-  discordLinked: boolean
-  avatarUrl?: string | null
-  banner?: { videoId: string; artworkUrl: string }
-  discord?: { id: string; username: string }
-}
-
-export interface ProfileSettings {
-  banner: string | null
-  showDiscord: boolean
-}
-
-export interface RankedUserStats extends UserStats {
-  ranked: true
   reputation: number
   score: number
   submissionCount: number
   totalUpvotes: number
-  rank: number
-}
-
-export interface UnrankedUserStats extends UserStats {
-  ranked: false
-}
-
-export type UserRankResponse = RankedUserStats | UnrankedUserStats
-
-export interface UserSubmission {
-  id: number
-  videoId: string
-  song: string
-  artist: string
-  album?: string
-  duration: number
-  format: "ttml" | "lrc" | "plain"
-  syncType: SubmissionSyncType
-  language?: string
-  effectiveScore: number
+  totalDownvotes?: number
   voteCount: number
-  confidence: "low" | "medium" | "high"
+  avgVote?: number
   createdAt: number
-  hidden: boolean
+  discordLinked: boolean
+  discordUsername?: string | null
+  discordId?: string | null
+  avatarUrl?: string | null
 }
 
-export type SubmissionSyncType = "richsync" | "linesync" | "plain"
-export type SubmissionSort = "newest" | "oldest" | "most_votes" | "least_votes"
-
-export interface UserSubmissionsResponse {
-  submissions: UserSubmission[]
-  nextCursor?: string
-}
-
-export interface LyricsSearchHit {
-  id: number
-  videoId: string
-  song: string
-  artist: string
-  album?: string
-  isrc?: string
-  duration: number
-  format: LyricsFormat
-  language?: string
-  syncType: SyncType
+export interface UserRankResponse {
+  ranked: boolean
+  rank: number | null
+  totalCurators: number
+  percentile?: number | null
   score: number
-  effectiveScore: number
-  voteCount: number
-  confidence: Confidence
-  matchScore?: number
-}
-
-export interface VariantSubmitter {
-  keyId: string
   reputation: number
-  displayName: string
+  submissionCount: number
+  totalUpvotes: number
   tier: TierName | null
-  level: number
-  levelProgress?: number
-  badgeCount: number
-  topBadge: LeaderboardBadge | null
-  featured: LeaderboardBadge[]
-  avatarUrl?: string | null
-}
-
-export interface MarkActor {
-  keyId: string
+  tierRank: number | null
+  handle: string
   displayName: string
-  tier: TierName | null
-  level: number
-  badgeCount: number
-  topBadge: LeaderboardBadge | null
+  discordLinked?: boolean
+  discordUsername?: string | null
+  discordId?: string | null
   avatarUrl?: string | null
-}
-
-export interface Mark {
-  type: string
-  label: string
-  icon: string
-  by?: MarkActor
-  at?: number
-}
-
-export interface FeedEntry {
-  id: number
-  videoId: string
-  song: string
-  artist: string
-  format: LyricsFormat
-  syncType: SyncType
-  createdAt: number
-  voteCount?: number
-  marks?: Mark[]
-  submitter?: MarkActor
-}
-
-export type SealedSort = "recently-sealed" | "top-rated"
-export type SealedSyncFilter = "richsync" | "linesync"
-
-export interface Page<T> {
-  items: T[]
-  nextCursor: string | null
-}
-
-export interface VariantSummary {
-  id: number
-  duration?: number
-  createdAt?: number
-  fulfilled?: UnisonFulfillment
-  videoId: string
-  song: string
-  artist: string
-  album?: string
-  isrc?: string
-  format: LyricsFormat
-  language?: string
-  syncType: SyncType
-  score: number
-  effectiveScore: number
-  voteCount: number
-  confidence: Confidence
-  hidden: boolean
-  submitter?: VariantSubmitter
-  marks?: Mark[]
-  userVote?: 1 | -1 | null
-}
-
-export interface VariantRevision {
-  revNo: number
-  count?: number
-  pending?: {
-    revNo: number
-    pendingReason: PendingReason
-    textDrift: number
-    timingDrift: number
-  } | null
-  lastRejected?: {
-    revNo: number
-    reviewNote: string | null
-  } | null
-  updatedAt: number
-}
-
-export interface VariantFull extends VariantSummary {
-  lyrics: string
-  revision?: VariantRevision
-}
-
-export interface QueueEntry {
-  rank: number
-  videoId: string
-  song: string
-  artist: string
-  thumbnailUrl: string | null
-  demand: number
-  requestCount: number
-}
-
-export type TierName = "lyricist" | "elite" | "master" | "grandmaster" | "legendary"
-
-export interface BadgeImage {
-  color: string
-  mono: string
-  silhouette: string
-}
-
-export interface BadgeTier {
-  level: number
-  name?: string
-  threshold: number
-  image?: BadgeImage
-}
-
-export interface BadgeDef {
-  key: string
-  name: string
-  description: string
-  category: string
-  kind: "title" | "medal" | "special"
-  tiers?: BadgeTier[]
-  secret?: boolean
-  rarity?: number
-  image: BadgeImage
-}
-
-export interface BadgeDisplay {
-  inlineGlyphs: number
-  featuredMax: number
-  rarityThreshold: number
-  categoryOrder: string[]
-}
-
-export interface BadgeCatalogue {
-  badges: BadgeDef[]
-  display: BadgeDisplay
-}
-
-export interface BadgeProgress {
-  current: number
-  next: number | null
+  showDiscord?: boolean
 }
 
 export interface UserBadge {
   key: string
+  name: string
+  description: string
+  category: BadgeCategory
+  rarity: BadgeRarity
   earned: boolean
   earnedAt?: number
   tier?: number
-  progress?: BadgeProgress
+  maxTier?: number
   featured: boolean
+  progress?: {
+    current: number
+    next: number
+  }
+  image: BadgeImage
 }
 
 export interface ExpertiseEntry {
@@ -303,32 +163,44 @@ export interface UserGamification {
   keyId: string
   level: number
   xp: number
+  xpFloor?: number
   xpForNext: number | null
-  xpFloor: number
+  levelProgress?: number | null
   tier: TierName | null
   tierRank: number | null
   badges: UserBadge[]
   featured: string[]
-  counts: { earned: number; total: number }
+  counts: {
+    earned: number
+    total: number
+  }
   topExpertise?: ExpertiseEntry[]
 }
 
-export interface DumpManifest {
-  schema_version: 1
-  generated_at: string
-  sha256: string
-  bytes: number
-  dump_url: string
-  latest_url: string
-  row_counts: {
-    lyrics: number
-    requested_songs: number
-    lyrics_requests: number
-  }
-  format: string
-  license: string
-  attribution_text: string
-  enterprise_contact: string
+export interface UserSubmission {
+  id: number
+  videoId: string
+  song: string
+  artist: string
+  album?: string | null
+  format: LyricsFormat
+  syncType: SyncType
+  language?: string | null
+  score: number
+  effectiveScore: number
+  voteCount: number
+  confidence: Confidence
+  createdAt: number
+  marks?: Mark[]
+}
+
+export type SubmissionSort = "newest" | "oldest" | "most_votes" | "least_votes"
+export type SubmissionSyncType = "richsync" | "linesync" | "plain"
+
+export interface UserSubmissionsResponse {
+  submissions: UserSubmission[]
+  total: number
+  nextCursor?: string
 }
 
 export interface AvatarPreset {
@@ -337,16 +209,172 @@ export interface AvatarPreset {
   url: string
 }
 
-export interface AvatarCatalogue {
-  presets: AvatarPreset[]
-  display: { cdnBase: string; artworkSize: number }
+export interface AvatarSongCover {
+  videoId: string
+  song: string
+  artist: string
+  url: string
 }
 
 export type AvatarChoice =
+  | { type: "none" }
+  | { type: "discord" }
   | { type: "preset"; ref: string }
   | { type: "song"; ref: string }
-  | { type: "discord" }
-  | { type: "default" }
+
+export interface AvatarCatalogue {
+  current: AvatarChoice
+  avatarUrl: string | null
+  discordAvailable: boolean
+  discordAvatarUrl: string | null
+  presets: AvatarPreset[]
+  songs: AvatarSongCover[]
+}
+
+export interface ProfileSettings {
+  showDiscord: boolean
+}
+
+export interface MarkActor {
+  keyId: string
+  displayName: string
+  tier?: TierName | null
+  level?: number
+  levelProgress?: number | null
+  badgeCount?: number
+  topBadge?: LeaderboardBadge | null
+  featured?: LeaderboardBadge[]
+  avatarUrl?: string | null
+  reputation?: number
+}
+
+export interface Mark {
+  type: "seal"
+  label: string
+  icon: string
+  by?: MarkActor
+  at?: number
+}
+
+export interface VariantSubmitter {
+  keyId: string
+  displayName: string
+  reputation: number
+  tier: TierName | null
+  level: number
+  levelProgress?: number | null
+  badgeCount: number
+  topBadge: LeaderboardBadge | null
+  featured: LeaderboardBadge[]
+  avatarUrl?: string | null
+}
+
+export interface VariantSummary {
+  id: number
+  videoId: string
+  song: string
+  artist: string
+  album?: string
+  isrc?: string
+  duration?: number
+  format: LyricsFormat
+  syncType: SyncType
+  language?: string
+  score: number
+  effectiveScore: number
+  voteCount: number
+  confidence: Confidence
+  hidden: boolean
+  createdAt?: number
+  submitter?: VariantSubmitter
+  userVote?: 1 | -1 | null
+  marks?: Mark[]
+}
+
+export interface RevisionBar {
+  revNo: number
+  count: number
+  pending: {
+    revNo: number
+    pendingReason: PendingReason
+    textDrift: number
+    timingDrift: number
+  } | null
+  lastRejected: {
+    revNo: number
+    reviewNote: string | null
+  } | null
+  updatedAt: number
+}
+
+export interface VariantFull extends VariantSummary {
+  lyrics: string
+  fulfilled?: {
+    demand: number
+    requestCount: number
+    fulfilledAt: number
+  }
+  revision?: RevisionBar
+}
+
+export interface LyricsSearchHit extends VariantSummary {
+  matchScore?: number
+  tier?: number
+}
+
+export interface QueueEntry {
+  videoId: string
+  song: string
+  artist: string
+  album?: string | null
+  demand: number
+  requestCount: number
+  rank: number
+}
+
+export type SealedSort = "newest" | "top-rated"
+export type SealedSyncFilter = "richsync" | "linesync" | "plain"
+
+export interface FeedEntry {
+  id: number
+  videoId: string
+  song: string
+  artist: string
+  album?: string | null
+  format: LyricsFormat
+  syncType: SyncType
+  language?: string | null
+  score: number
+  effectiveScore: number
+  voteCount: number
+  confidence: Confidence
+  createdAt: number
+  submitter?: VariantSubmitter
+  marks?: Mark[]
+  userVote?: 1 | -1 | null
+}
+
+export interface Page<T> {
+  items: T[]
+  nextCursor: string | null
+}
+
+export interface DumpManifest {
+  generatedAt: string
+  sha256: string
+  sizeBytes: number
+  counts: {
+    lyrics: number
+    requestedSongs: number
+    lyricsRequests: number
+  }
+}
+
+export type ApiEnvelope<T> =
+  | { success: true; data: T }
+  | { success: false; error: string; code?: string; hint?: string }
+
+export type { ReportReason }
 
 export type FeedSort = "default" | "newest" | "top-rated" | "most-voted"
 export type FeedSortDir = "desc" | "asc"
@@ -450,6 +478,7 @@ export interface VideoSuggestion {
   matchScore?: number
   match?: { level: SuggestedVideoMatchLevel; score: number } | null
   thumbnailUrl?: string
+  artworkUrl?: string | null
 }
 
 export type {
