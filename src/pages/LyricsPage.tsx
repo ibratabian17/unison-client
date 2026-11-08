@@ -8,35 +8,32 @@ import { LinkedVideosModal } from "@/components/LinkedVideosModal"
 import { LyricsPanel } from "@/components/LyricsPanel"
 import { LyricsContentSkeleton } from "@/components/LyricsRenderer"
 import { usePageArt } from "@/components/PageArt"
-import { ReportModal } from "@/components/ReportModal"
 import { RevisionHistoryModal } from "@/components/RevisionHistoryModal"
 import { VariantList, VariantListSkeleton } from "@/components/VariantList"
 import { VariantMetadata, VariantMetadataSkeleton } from "@/components/VariantMetadata"
 import { VoteControls } from "@/components/VoteControls"
+import { BoostLyricButton } from "@/components/council/BoostLyricButton"
 import { EditMetadataButton } from "@/components/council/EditMetadataButton"
 import { SealLyricButton } from "@/components/council/SealLyricButton"
-import { BoostLyricButton } from "@/components/council/BoostLyricButton"
 import { YouTubeMusicIcon } from "@/components/icons/YouTubeMusicIcon"
 import { Bone } from "@/components/skeleton"
 import { SongHero, SongHeroSkeleton } from "@/components/song/SongHero"
 import { SongRail, SongRailSkeleton } from "@/components/song/SongRail"
+import { buttonClass } from "@/components/ui"
 import { useUiMode } from "@/context/UiModeContext"
 import { useFillHeight } from "@/hooks/useFillHeight"
 import { useLyricsVariant, useLyricsVariants } from "@/hooks/useLyricsData"
 import { useYouTubePlayer } from "@/hooks/useYouTubePlayer"
 import { deleteLyrics, fetchSongRank, type SongRankResponse } from "@/lib/api"
 import { songBackdrop, useArtwork } from "@/lib/artwork"
-import { cn } from "@/lib/cn"
+import { pushToast } from "@/lib/toast"
 import { youTubeMusicUrl } from "@/lib/youtube-music"
-import { IconFlag, IconPlus, IconTrash } from "@tabler/icons-react"
+import { IconPlus, IconTrash } from "@tabler/icons-react"
 
 const NEW_PAGE =
   "grid grid-cols-[minmax(0,1fr)_340px] items-start gap-x-12 min-[1001px]:-mb-8 max-[1000px]:grid-cols-[minmax(0,1fr)] max-[1000px]:gap-y-7 max-[1000px]:pb-[88px]"
 const LYRICS_FILL = "lyrics-fill"
 const LYRICS_SIZE = `${LYRICS_FILL} h-[max(var(--fill-height,560px),240px)] max-w-none max-[1000px]:h-[70dvh]`
-
-const CLASSIC_ACTION_CLASS =
-  "inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-unison-border bg-unison-bg-elevated px-2 py-1 text-xs text-unison-text-secondary transition-colors hover:border-unison-border-strong hover:bg-unison-bg-hover hover:text-unison-text"
 
 export function LyricsPage() {
   const { uiMode } = useUiMode()
@@ -44,11 +41,11 @@ export function LyricsPage() {
   const { videoId } = useParams<{ videoId: string }>()
   const [params, setParams] = useSearchParams()
   const [playerActive, setPlayerActive] = useState(false)
-  const [reportOpen, setReportOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [videosOpen, setVideosOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [confirmingClassicDelete, setConfirmingClassicDelete] = useState(false)
   const [songRank, setSongRank] = useState<SongRankResponse | null>(null)
   const session = useSession()
   const queryClient = useQueryClient()
@@ -100,6 +97,13 @@ export function LyricsPage() {
       }
     }
   }, [variantsQuery.isSuccess, variants.length, safeVideoId])
+
+  useEffect(() => {
+    if (!confirmingClassicDelete) return
+    const timer = window.setTimeout(() => setConfirmingClassicDelete(false), 4000)
+    return () => window.clearTimeout(timer)
+  }, [confirmingClassicDelete])
+
   const requestedId = variantIdParam !== null ? Number(variantIdParam) : null
   const selectedId = useMemo(() => {
     if (requestedId !== null && variants.some((v) => v.id === requestedId)) return requestedId
@@ -137,14 +141,17 @@ export function LyricsPage() {
   const handleDelete = async () => {
     const v = variantQuery.data?.variant
     if (!v) return
-    if (!window.confirm(`Are you sure you want to delete this lyrics entry for "${v.song}"?`)) return
     try {
       setDeleting(true)
       await deleteLyrics(v.id)
       await queryClient.invalidateQueries({ queryKey: ["lyrics", "variants", safeVideoId] })
+      pushToast({ kind: "success", message: "Deleted lyric submission" })
       navigate("/feed")
     } catch (err) {
-      alert(err instanceof Error ? err.message : "Failed to delete submission")
+      pushToast({
+        kind: "error",
+        message: err instanceof Error ? err.message : "Failed to delete submission",
+      })
     } finally {
       setDeleting(false)
     }
@@ -161,7 +168,7 @@ export function LyricsPage() {
   }
   if (variants.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center space-y-4 py-16 text-center max-w-md mx-auto">
+      <div className="mx-auto flex max-w-md flex-col items-center justify-center space-y-4 py-16 text-center">
         <EmptyState
           title="No lyrics yet"
           hint={
@@ -170,12 +177,9 @@ export function LyricsPage() {
               : "Be the first to submit synchronized lyrics for this song!"
           }
         />
-        <Link
-          to={`/submit?videoId=${encodeURIComponent(safeVideoId)}`}
-          className="inline-flex items-center gap-2 rounded-xl bg-unison-text px-4 py-2 text-xs font-bold text-[#121117] shadow transition-opacity hover:opacity-90"
-        >
+        <Link to={`/submit?videoId=${encodeURIComponent(safeVideoId)}`} className={buttonClass("primary", "md")}>
           <IconPlus className="size-4" />
-          <span>Submit Lyrics</span>
+          <span>Submit lyrics</span>
         </Link>
       </div>
     )
@@ -194,9 +198,12 @@ export function LyricsPage() {
         variant={variant}
         isOpen={editOpen}
         onClose={() => setEditOpen(false)}
-        onSaved={() => {
+        onSaved={(newVariantId) => {
+          if (newVariantId !== undefined && newVariantId > 0) {
+            handleSelect(newVariantId)
+          }
           void queryClient.invalidateQueries({ queryKey: ["lyrics", "variants", safeVideoId] })
-          void queryClient.invalidateQueries({ queryKey: ["lyrics", "variant", selectedId] })
+          void queryClient.invalidateQueries({ queryKey: ["lyrics", "variant", newVariantId ?? selectedId] })
         }}
       />
       <RevisionHistoryModal
@@ -217,12 +224,6 @@ export function LyricsPage() {
         onUpdated={() => {
           void queryClient.invalidateQueries({ queryKey: ["lyrics", "variants", safeVideoId] })
         }}
-      />
-      <ReportModal
-        variantId={variant.id}
-        songTitle={variant.song}
-        isOpen={reportOpen}
-        onClose={() => setReportOpen(false)}
       />
     </div>
   ) : null
@@ -286,33 +287,24 @@ export function LyricsPage() {
                 Open on YouTube Music
               </a>
 
-              {variant ? (
-                <div className="flex items-center justify-between gap-2 pt-1">
+              {variant && isOwner ? (
+                <div className="flex justify-end pt-1">
                   <button
                     type="button"
-                    onClick={() => setReportOpen(true)}
-                    className={cn(CLASSIC_ACTION_CLASS, "text-[11.5px]")}
-                    title="Report wrong lyrics or bad sync"
+                    disabled={deleting}
+                    onClick={() => {
+                      if (!confirmingClassicDelete) {
+                        setConfirmingClassicDelete(true)
+                        return
+                      }
+                      setConfirmingClassicDelete(false)
+                      void handleDelete()
+                    }}
+                    className={buttonClass("danger", "sm")}
                   >
-                    <IconFlag className="size-3.5" />
-                    <span>Report</span>
+                    <IconTrash className="size-3.5" />
+                    <span>{deleting ? "Deleting…" : confirmingClassicDelete ? "Confirm delete" : "Delete"}</span>
                   </button>
-
-                  {isOwner ? (
-                    <button
-                      type="button"
-                      disabled={deleting}
-                      onClick={handleDelete}
-                      className={cn(
-                        CLASSIC_ACTION_CLASS,
-                        "cursor-pointer text-[11.5px] text-red-400/80 hover:border-red-500/40 hover:text-red-400",
-                      )}
-                      title="Delete your submission"
-                    >
-                      <IconTrash className="size-3.5" />
-                      <span>{deleting ? "Deleting..." : "Delete"}</span>
-                    </button>
-                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -368,7 +360,6 @@ export function LyricsPage() {
         onOpenHistory={() => setHistoryOpen(true)}
         onOpenVideos={() => setVideosOpen(true)}
         onOpenEdit={isOwner ? () => setEditOpen(true) : undefined}
-        onOpenReport={() => setReportOpen(true)}
         isOwner={isOwner}
       />
       {modals}

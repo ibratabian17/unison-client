@@ -1,5 +1,6 @@
 import { cn } from "@/lib/cn"
 import { plural } from "@/lib/format"
+import { languageName } from "@/lib/language"
 import type { DiffPart, DiffRow, HeadTextRef, SyllableChange } from "@/lib/revision-types"
 import type { ReactNode } from "react"
 
@@ -9,14 +10,14 @@ type LineKind = "same" | "add" | "del" | "timing"
 
 interface Line {
   kind: LineKind
-  lineNo: number
+  lineNo: number | string
   prefix: string
   body: ReactNode
   note?: string
 }
 
-function stamp(ms: number | null): string {
-  if (ms === null) return ""
+function stamp(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined || Number.isNaN(ms)) return ""
   const pad = (n: number) => String(n).padStart(2, "0")
   return `[${pad(Math.floor(ms / 60000))}:${pad(Math.floor((ms % 60000) / 1000))}.${pad(Math.floor((ms % 1000) / 10))}] `
 }
@@ -42,6 +43,23 @@ function syllableNote(change: SyllableChange): string | undefined {
   if (change.after === null) return "syllable timing removed"
   if (change.moved > 0) return `${plural(change.moved, "syllable", "syllables")} retimed`
   return undefined
+}
+
+type DiffField = Extract<DiffRow, { kind: "field" }>["field"]
+
+const FIELD_NAMES: Record<DiffField, string> = {
+  language: "Language",
+  isrc: "ISRC",
+  album: "Album",
+  song: "Title",
+  artist: "Artist",
+}
+
+function formatFieldVal(field: DiffField, val: string | null): string {
+  if (!val) return ""
+  if (field !== "language") return val
+  const name = languageName(val)
+  return name === val ? val : `${name} (${val})`
 }
 
 type SyllableRow = Extract<DiffRow, { kind: "syllable" }>
@@ -101,6 +119,15 @@ function unified(rows: DiffRow[]): Item[] {
     switch (row.kind) {
       case "gap":
         return [{ gap: row }]
+      case "field": {
+        const prefix = `[${FIELD_NAMES[row.field] ?? row.field}] `
+        const before = formatFieldVal(row.field, row.before)
+        const after = formatFieldVal(row.field, row.after)
+        const out: Item[] = []
+        if (before) out.push({ line: { kind: "del", lineNo: "meta", prefix, body: before } })
+        if (after) out.push({ line: { kind: "add", lineNo: "meta", prefix, body: after } })
+        return out
+      }
       case "word": {
         const prefix = stamp(row.startMs) + label(row.head)
         return [
@@ -138,6 +165,21 @@ function side(rows: DiffRow[], which: "before" | "after"): Item[] {
     switch (row.kind) {
       case "gap":
         return [{ gap: row }]
+      case "field": {
+        const prefix = `[${FIELD_NAMES[row.field] ?? row.field}] `
+        const val = formatFieldVal(row.field, which === "before" ? row.before : row.after)
+        if (!val) return []
+        return [
+          {
+            line: {
+              kind: which === "before" ? "del" : "add",
+              lineNo: "meta",
+              prefix,
+              body: val,
+            },
+          },
+        ]
+      }
       case "same":
         return [
           { line: { kind: "same", lineNo: row.lineNo, prefix: stamp(row.startMs) + label(row.head), body: row.text } },
@@ -189,12 +231,12 @@ const ROW_TONE: Record<LineKind, string> = {
 }
 
 function Rows({ items }: { items: Item[] }) {
-  let lastLine = 0
-  return items.map((item) => {
+  let lastLine: number | string = 0
+  return items.map((item, idx) => {
     if ("gap" in item) {
       return (
         <div
-          key={`gap-after-${lastLine}`}
+          key={`gap-after-${lastLine}-${idx}`}
           data-row="gap"
           className="bg-white/[0.03] px-3 py-0.5 text-[11px] text-unison-text-muted"
         >
@@ -206,10 +248,10 @@ function Rows({ items }: { items: Item[] }) {
     lastLine = line.lineNo
     return (
       <div
-        key={`${line.kind}-${line.lineNo}-${line.prefix}`}
+        key={`${line.kind}-${line.lineNo}-${line.prefix}-${idx}`}
         data-row={line.kind}
         className={cn(
-          "grid grid-cols-[36px_16px_minmax(0,1fr)] [&_mark]:rounded-[3px] [&_mark]:px-px",
+          "grid grid-cols-[42px_16px_minmax(0,1fr)] [&_mark]:rounded-[3px] [&_mark]:px-px",
           ROW_TONE[line.kind],
         )}
       >

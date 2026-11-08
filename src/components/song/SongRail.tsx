@@ -3,6 +3,7 @@ import { Tooltip } from "@/components/Tooltip"
 import { UserAvatar } from "@/components/UserAvatar"
 import { VariantList } from "@/components/VariantList"
 import { XpAvatar } from "@/components/XpAvatar"
+import { Callout, Chip } from "@/components/council/detail-parts"
 import { Bone } from "@/components/skeleton"
 import { chipClass, chipIconClass, glassClass } from "@/components/ui"
 import { resolveAssetUrl } from "@/lib/badge-view"
@@ -10,7 +11,7 @@ import { cn } from "@/lib/cn"
 import { formatCompact, formatFullDate } from "@/lib/format"
 import { SONG_LEVEL_HOLE } from "@/lib/level-hole"
 import type { VariantFull, VariantSummary } from "@/lib/types"
-import { IconBrandYoutube, IconEdit, IconFlag, IconHistory } from "@tabler/icons-react"
+import { IconAlertTriangle, IconHistory, IconLink, IconPencil } from "@tabler/icons-react"
 import type { ReactNode } from "react"
 import { Link } from "react-router-dom"
 
@@ -21,6 +22,13 @@ const SCORE_TIP =
   "Ranking score, weighted by voter reputation. Higher ranks first; the number in parentheses is net votes."
 const VOTES_TIP = "How many people have voted on this version."
 const REP_TIP = "Submitter reputation (0 to 2). Trusted users' votes and submissions count for more."
+
+const PENDING_REASON_TEXT: Record<string, string> = {
+  sealed: "Sealed lyric",
+  flagged: "Flagged for review",
+  large_text_drift: "Large text change",
+  large_timing_drift: "Large timing change",
+}
 
 function shortKey(keyId: string): string {
   return keyId.length <= 12 ? keyId : `${keyId.slice(0, 8)}…${keyId.slice(-4)}`
@@ -51,7 +59,6 @@ function Stats({
   onOpenHistory,
   onOpenVideos,
   onOpenEdit,
-  onOpenReport,
   isOwner,
 }: {
   variant: VariantFull
@@ -59,12 +66,11 @@ function Stats({
   onOpenHistory?: () => void
   onOpenVideos?: () => void
   onOpenEdit?: () => void
-  onOpenReport?: () => void
   isOwner?: boolean
 }) {
   const seal = variant.marks?.find((mark) => mark.type === "seal")
   const revision = variant.revision
-  const hasTools = Boolean(onOpenVideos || onOpenHistory || (onOpenEdit && isOwner))
+  const showTools = Boolean((isOwner && onOpenEdit) || onOpenHistory || onOpenVideos)
 
   return (
     <>
@@ -112,11 +118,8 @@ function Stats({
           ) : null}
           {variant.fulfilled ? (
             <MetaRow label="Request">
-              <Link
-                to="/queue"
-                className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-300 transition-colors hover:bg-emerald-500/25"
-              >
-                <span>Fulfilled ({variant.fulfilled.requestCount})</span>
+              <Link to="/queue" className="transition-opacity hover:opacity-85">
+                <Chip tone="good">Fulfilled · {variant.fulfilled.requestCount}</Chip>
               </Link>
             </MetaRow>
           ) : null}
@@ -128,23 +131,56 @@ function Stats({
           {revision ? (
             <MetaRow label="Last edited">
               <span className="font-bold tabular-nums text-unison-text">{formatFullDate(revision.updatedAt)}</span>
-              <button
-                type="button"
-                onClick={onOpenHistory}
-                className="inline-flex h-[22px] cursor-pointer items-center rounded-[7px] bg-white/[0.08] px-2 text-xs font-medium text-(--ink-3) transition-colors hover:bg-white/[0.14] hover:text-unison-text [corner-shape:superellipse(1.6)]"
-              >
-                {revision.revNo === 1 ? "Original" : `Revision ${revision.revNo}`}
-              </button>
+              {onOpenHistory ? (
+                <button
+                  type="button"
+                  onClick={onOpenHistory}
+                  className="inline-flex h-[22px] cursor-pointer items-center rounded-[7px] bg-white/[0.08] px-2 text-xs font-medium text-(--ink-3) transition-colors hover:bg-white/[0.14] hover:text-unison-text [corner-shape:superellipse(1.6)]"
+                >
+                  {revision.revNo === 1 ? "Original" : `Revision ${revision.revNo}`}
+                </button>
+              ) : (
+                <span className="inline-flex h-[22px] items-center rounded-[7px] bg-white/[0.08] px-2 text-xs font-medium text-(--ink-3) [corner-shape:superellipse(1.6)]">
+                  {revision.revNo === 1 ? "Original" : `Revision ${revision.revNo}`}
+                </span>
+              )}
             </MetaRow>
           ) : null}
         </div>
       ) : null}
-      {hasTools ? (
+
+      {isOwner && revision?.pending ? (
+        <div className="mt-3.5">
+          <Callout tone="warn" icon={<IconAlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" stroke={1.5} />}>
+            <b>Rev {revision.pending.revNo} pending review.</b>{" "}
+            {PENDING_REASON_TEXT[revision.pending.pendingReason] ?? "Awaiting Council review"}. Rev {revision.revNo}{" "}
+            remains live.{" "}
+            {onOpenHistory ? (
+              <button
+                type="button"
+                onClick={onOpenHistory}
+                className="font-semibold text-unison-text underline transition-opacity hover:opacity-80"
+              >
+                View or withdraw
+              </button>
+            ) : null}
+          </Callout>
+        </div>
+      ) : isOwner && revision?.lastRejected && revision.lastRejected.revNo > revision.revNo ? (
+        <div className="mt-3.5">
+          <Callout tone="warn" icon={<IconAlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" stroke={1.5} />}>
+            <b>Rev {revision.lastRejected.revNo} was rejected.</b>{" "}
+            {revision.lastRejected.reviewNote ? `“${revision.lastRejected.reviewNote}”` : null}
+          </Callout>
+        </div>
+      ) : null}
+
+      {showTools ? (
         <div className="mt-[18px] flex flex-wrap gap-1.5 pt-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-          {onOpenVideos ? (
-            <button type="button" onClick={onOpenVideos} className={chipClass}>
-              <IconBrandYoutube className={cn(chipIconClass, "text-red-400")} stroke={1.75} />
-              <span>Videos</span>
+          {isOwner && onOpenEdit ? (
+            <button type="button" onClick={onOpenEdit} className={chipClass}>
+              <IconPencil className={chipIconClass} stroke={1.75} />
+              <span>Edit lyrics</span>
             </button>
           ) : null}
           {onOpenHistory ? (
@@ -153,10 +189,10 @@ function Stats({
               <span>Revisions</span>
             </button>
           ) : null}
-          {onOpenEdit && isOwner ? (
-            <button type="button" onClick={onOpenEdit} className={cn(chipClass, "w-full justify-center")}>
-              <IconEdit className={chipIconClass} stroke={1.75} />
-              <span>Edit Metadata &amp; Lyrics</span>
+          {onOpenVideos ? (
+            <button type="button" onClick={onOpenVideos} className={chipClass}>
+              <IconLink className={chipIconClass} stroke={1.75} />
+              <span>Linked videos</span>
             </button>
           ) : null}
         </div>
@@ -211,7 +247,6 @@ interface SongRailProps {
   onOpenHistory?: () => void
   onOpenVideos?: () => void
   onOpenEdit?: () => void
-  onOpenReport?: () => void
   isOwner?: boolean
 }
 
@@ -229,7 +264,6 @@ export function SongRail({
   onOpenHistory,
   onOpenVideos,
   onOpenEdit,
-  onOpenReport,
   isOwner,
 }: SongRailProps) {
   return (
@@ -248,7 +282,6 @@ export function SongRail({
             onOpenHistory={onOpenHistory}
             onOpenVideos={onOpenVideos}
             onOpenEdit={onOpenEdit}
-            onOpenReport={onOpenReport}
             isOwner={isOwner}
           />
         </div>

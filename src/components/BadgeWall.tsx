@@ -216,7 +216,7 @@ export function BadgeWall({ gamification, catalogue, defaultOpen = true }: Badge
 
   if (isClassic) {
     return (
-      <CollapsibleSection title="Badges" meta={metaNode} defaultOpen={defaultOpen}>
+      <CollapsibleSection title="Badges" summary={metaNode} defaultOpen={defaultOpen}>
         {body}
       </CollapsibleSection>
     )

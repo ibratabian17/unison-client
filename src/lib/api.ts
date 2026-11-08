@@ -638,8 +638,8 @@ export async function saveLyricRevision(
     lyrics: input.lyrics,
     format: input.format === "auto" ? "plain" : input.format,
   }
-  if (input.language) payload.language = input.language
-  if (input.isrc) payload.isrc = input.isrc
+  if (input.language !== undefined) payload.language = input.language?.trim() || null
+  if (input.isrc !== undefined) payload.isrc = input.isrc?.trim() || null
   if (input.album !== undefined) payload.album = input.album?.trim() || null
 
   const headers: Record<string, string> = { "Content-Type": "application/json" }
@@ -844,11 +844,21 @@ export async function requestLyrics(input: {
   return json.data ?? { requestCount: 1, demand: 1 }
 }
 
-export interface RevisionPreviewData {
-  disposition: "immediate" | "pending"
-  confidence: number
-  drift: { textDrift: number; timingDrift: number }
-  linesChanged?: number
+export type RevisionPreviewData = import("./revision-types").PreviewResult
+
+export async function fetchRevisionDetail(
+  lyricId: number,
+  revId: number,
+  signal?: AbortSignal,
+): Promise<import("./revision-types").RevisionDetail | null> {
+  try {
+    const res = await fetch(resolveApiPath(`/lyrics/${lyricId}/revisions/${revId}`), { signal })
+    if (!res.ok) return null
+    const json = await res.json()
+    return json.data ?? null
+  } catch {
+    return null
+  }
 }
 
 export async function previewLyricRevision(
@@ -860,9 +870,9 @@ export async function previewLyricRevision(
     duration?: number
     song?: string
     artist?: string
-    album?: string
-    isrc?: string
-    language?: string
+    album?: string | null
+    isrc?: string | null
+    language?: string | null
   },
 ): Promise<RevisionPreviewData | null> {
   const session = loadStoredSession()
@@ -870,8 +880,8 @@ export async function previewLyricRevision(
     lyrics: input.lyrics,
     format: input.format === "auto" ? "plain" : input.format,
   }
-  if (input.language) payload.language = input.language
-  if (input.isrc) payload.isrc = input.isrc
+  if (input.language !== undefined) payload.language = input.language?.trim() || null
+  if (input.isrc !== undefined) payload.isrc = input.isrc?.trim() || null
   if (input.album !== undefined) payload.album = input.album?.trim() || null
 
   const headers: Record<string, string> = { "Content-Type": "application/json" }
@@ -1055,3 +1065,6 @@ export async function fetchSongRank(videoId: string): Promise<SongRankResponse> 
     return { ranked: false }
   }
 }
+
+export const fetchSearchResults = searchLyrics
+

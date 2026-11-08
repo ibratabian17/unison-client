@@ -3,9 +3,9 @@ import { SwapLabel } from "@/components/SwapLabel"
 import { SyncTag } from "@/components/SyncTag"
 import { Tooltip } from "@/components/Tooltip"
 import { VoteControls } from "@/components/VoteControls"
+import { BoostLyricButton } from "@/components/council/BoostLyricButton"
 import { EditMetadataButton } from "@/components/council/EditMetadataButton"
 import { SealLyricButton } from "@/components/council/SealLyricButton"
-import { BoostLyricButton } from "@/components/council/BoostLyricButton"
 import { IconSwap } from "@/components/icons/IconSwap"
 import { PlayPauseIcon } from "@/components/icons/PlaybackIcons"
 import { YouTubeMusicIcon } from "@/components/icons/YouTubeMusicIcon"
@@ -22,6 +22,7 @@ import type { Mark, VariantFull } from "@/lib/types"
 import { youTubeMusicUrl } from "@/lib/youtube-music"
 import { IconCheck, IconShare, IconTrash } from "@tabler/icons-react"
 import { motion } from "motion/react"
+import { useEffect, useState } from "react"
 
 const SYNC_TIP: Record<SyncKind, string> = {
   syllable: "Syllable synced: each syllable highlights as it is sung.",
@@ -75,7 +76,6 @@ interface SongHeroProps {
   versions: number
   art: string | null | undefined
   player: HeroPlayer
-  onOpenReportModal?: () => void
   onDelete?: () => void
   deleting?: boolean
 }
@@ -168,6 +168,38 @@ function ShareButton({ videoId }: { videoId: string }) {
   )
 }
 
+function DeleteChip({ onDelete, deleting }: { onDelete: () => void; deleting?: boolean }) {
+  const [confirming, setConfirming] = useState(false)
+
+  useEffect(() => {
+    if (!confirming) return
+    const timer = window.setTimeout(() => setConfirming(false), 4000)
+    return () => window.clearTimeout(timer)
+  }, [confirming])
+
+  return (
+    <button
+      type="button"
+      disabled={deleting}
+      onClick={() => {
+        if (!confirming) {
+          setConfirming(true)
+          return
+        }
+        setConfirming(false)
+        onDelete()
+      }}
+      className={cn(
+        chipClass,
+        confirming && "bg-red-500/20 text-[#fca5a5] hover:bg-red-500/28 hover:text-[#fca5a5]",
+      )}
+    >
+      <IconTrash className={chipIconClass} stroke={1.75} />
+      <span>{deleting ? "Deleting…" : confirming ? "Confirm delete" : "Delete"}</span>
+    </button>
+  )
+}
+
 export function SongHero({
   variant,
   versions,
@@ -256,18 +288,7 @@ export function SongHero({
             />
             <SealLyricButton videoId={variant.videoId} lyricsId={variant.id} />
             <BoostLyricButton lyricsId={variant.id} />
-            {onDelete ? (
-              <button
-                type="button"
-                disabled={deleting}
-                onClick={onDelete}
-                className={cn(chipClass, "text-red-300 hover:bg-red-500/20 hover:text-red-200")}
-                title="Delete your submission"
-              >
-                <IconTrash className={chipIconClass} stroke={1.75} />
-                <span>{deleting ? "Deleting…" : "Delete"}</span>
-              </button>
-            ) : null}
+            {onDelete ? <DeleteChip onDelete={onDelete} deleting={deleting} /> : null}
           </div>
         </div>
         {variant.hidden ? (

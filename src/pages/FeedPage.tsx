@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import { useSession } from "@/auth/useSession"
 import { EmptyState } from "@/components/EmptyState"
@@ -6,13 +6,13 @@ import { FeedGrid } from "@/components/FeedGrid"
 import { LeaderboardSection, SeeAllLink } from "@/components/LeaderboardSection"
 import { useSongArtPreview } from "@/components/PageArt"
 import { SealedShelf } from "@/components/SealedShelf"
-import { COVER_GRID, SongCoverTile } from "@/components/SongCoverTile"
+import { COVER_GRID, SongCoverTile, SongCoverTileSkeletons } from "@/components/SongCoverTile"
 import { SongRow, SongRowSkeletonList } from "@/components/SongRow"
 import { SongThumbnail } from "@/components/SongThumbnail"
 import { SubmitterLine } from "@/components/SubmitterLine"
 import { SyncTag } from "@/components/SyncTag"
 import { Segmented } from "@/components/council/Segmented"
-import { chipClass, chipIconClass, glassClass } from "@/components/ui"
+import { chipClass, glassClass } from "@/components/ui"
 import { useUiMode } from "@/context/UiModeContext"
 import { useAsyncData } from "@/hooks/useAsyncData"
 import {
@@ -20,11 +20,14 @@ import {
   fetchMySubmissions,
   fetchSongLeaderboard,
   lookupLyrics,
+  requestLyrics,
   unvoteVariant,
   voteVariant,
 } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { formatRelativeTime } from "@/lib/format"
+import { CURATED_LANGUAGE_CODES, formatLanguageName } from "@/lib/languages"
+import { extractVideoId } from "@/lib/lyrics-parser"
 import { LAYOUT_TRANSITION } from "@/lib/motion-variants"
 import { syncTypeFor } from "@/lib/sync-type"
 import type {
@@ -34,9 +37,12 @@ import type {
   FeedTier,
   UnisonFeedEntry,
 } from "@/lib/types"
+import { fetchVideoMetadata } from "@/lib/video-metadata"
 import {
+  IconCheck,
   IconLoader2,
   IconPlayerPlay,
+  IconPlus,
   IconSearch,
   IconThumbDown,
   IconThumbUp,
@@ -44,7 +50,7 @@ import {
 import { motion } from "motion/react"
 
 const DEFAULT_FILTERS: FeedFilters = {
-  sort: "newest",
+  sort: "default",
   sortDir: "desc",
   syncType: "all",
   tier: "all",
@@ -118,7 +124,12 @@ function FeedEntryCard({
           {...preview}
           className="flex items-center gap-3 transition-colors group-hover:text-red-400"
         >
-          <SongThumbnail videoId={entry.videoId} song={entry.song} artist={entry.artist} className="size-12 shrink-0 rounded-lg" />
+          <SongThumbnail
+            videoId={entry.videoId}
+            song={entry.song}
+            artist={entry.artist}
+            className="size-12 shrink-0 rounded-lg"
+          />
           <div className="min-w-0 flex-1">
             <h3 className="line-clamp-1 text-base font-semibold text-unison-text">{entry.song}</h3>
             <p className="line-clamp-1 text-xs text-unison-text-secondary">{entry.artist}</p>
@@ -215,13 +226,35 @@ export function FeedPage() {
   const [lookupLoading, setLookupLoading] = useState(false)
   const [lookupError, setLookupError] = useState<string | null>(null)
 
+  // Song Request quick form on Most Wanted tab
+  const [showRequestForm, setShowRequestForm] = useState(false)
+  const [reqVideoInput, setReqVideoInput] = useState("")
+  const [reqSong, setReqSong] = useState("")
+  const [reqArtist, setReqArtist] = useState("")
+  const [reqSubmitting, setReqSubmitting] = useState(false)
+  const [reqFeedback, setReqFeedback] = useState<string | null>(null)
+
   const songsData = useAsyncData(fetchSongLeaderboard, "leaderboard:songs")
+
+  const curatedLangOptions = useMemo(
+    () => CURATED_LANGUAGE_CODES.map((code) => ({ code, label: formatLanguageName(code) })),
+    [],
+  )
 
   const switchTab = (tab: FeedTab) => {
     setActiveTab(tab)
     if (tab === "discover") setSearchParams({})
     else setSearchParams({ tab })
   }
+
+  // Cycle sort: default -> desc -> asc -> default (matching Better Lyrics e0361214)
+  const cycleSort = useCallback((key: "newest" | "top-rated" | "most-voted") => {
+    setFilters((prev) => {
+      if (prev.sort !== key) return { ...prev, sort: key, sortDir: "desc" }
+      if (prev.sortDir === "desc") return { ...prev, sort: key, sortDir: "asc" }
+      return { ...prev, sort: "default", sortDir: "desc" }
+    })
+  }, [])
 
   // Keyboard shortcuts from Better Lyrics unisonPage.ts
   useEffect(() => {
@@ -240,25 +273,13 @@ export function FeedPage() {
       const k = e.key.toUpperCase()
       if (k === "1") {
         e.preventDefault()
-        setFilters((prev) => ({
-          ...prev,
-          sort: "newest",
-          sortDir: prev.sort === "newest" ? (prev.sortDir === "desc" ? "asc" : "desc") : "desc",
-        }))
+        cycleSort("newest")
       } else if (k === "2") {
         e.preventDefault()
-        setFilters((prev) => ({
-          ...prev,
-          sort: "top-rated",
-          sortDir: prev.sort === "top-rated" ? (prev.sortDir === "desc" ? "asc" : "desc") : "desc",
-        }))
+        cycleSort("top-rated")
       } else if (k === "3") {
         e.preventDefault()
-        setFilters((prev) => ({
-          ...prev,
-          sort: "most-voted",
-          sortDir: prev.sort === "most-voted" ? (prev.sortDir === "desc" ? "asc" : "desc") : "desc",
-        }))
+        cycleSort("most-voted")
       } else if (k === "Q") {
         e.preventDefault()
         setFilters((f) => ({ ...f, syncType: f.syncType === "richsync" ? "all" : "richsync" }))
@@ -287,7 +308,7 @@ export function FeedPage() {
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [activeTab])
+  }, [activeTab, cycleSort])
 
   const loadFeed = useCallback(
     async (isInitial = true, cursor?: number) => {
@@ -364,6 +385,34 @@ export function FeedPage() {
     }
   }
 
+  const handleRequestSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const vid = extractVideoId(reqVideoInput)
+    if (!/^[a-zA-Z0-9_-]{11}$/.test(vid) || !reqSong.trim() || !reqArtist.trim()) return
+    try {
+      setReqSubmitting(true)
+      setReqFeedback(null)
+      const res = await requestLyrics({
+        videoId: vid,
+        song: reqSong.trim(),
+        artist: reqArtist.trim(),
+        thumbnailUrl: `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`,
+      })
+      setReqFeedback(
+        res.status === "already_available"
+          ? "Lyrics are already available for this song!"
+          : `Requested! (${res.requestCount ?? 1} requests)`,
+      )
+      setReqVideoInput("")
+      setReqSong("")
+      setReqArtist("")
+    } catch (err) {
+      setReqFeedback(err instanceof Error ? err.message : "Failed to submit song request")
+    } finally {
+      setReqSubmitting(false)
+    }
+  }
+
   const tabs: { id: FeedTab; label: string }[] = [
     { id: "discover", label: "Highlights" },
     { id: "browse", label: "All Submissions" },
@@ -384,7 +433,7 @@ export function FeedPage() {
       ) : songsData.data.mostWanted.length === 0 ? (
         <EmptyState
           title="Nothing requested right now"
-          hint="Click Request Song above to add a track to the community board."
+          hint="Request lyrics on a YT Music song you want covered."
         />
       ) : (
         <ul className="space-y-2">
@@ -436,7 +485,80 @@ export function FeedPage() {
             onChange={switchTab}
           />
         )}
+
+        {activeTab === "wanted" ? (
+          <button
+            type="button"
+            onClick={() => setShowRequestForm((v) => !v)}
+            className={
+              isNew
+                ? chipClass
+                : "inline-flex items-center gap-1.5 rounded-lg border border-unison-border bg-unison-bg-elevated px-3 py-1.5 text-xs font-medium text-unison-text hover:bg-unison-bg-hover cursor-pointer"
+            }
+          >
+            <IconPlus className="size-3.5" />
+            <span>Request Song</span>
+          </button>
+        ) : null}
       </div>
+
+      {activeTab === "wanted" && showRequestForm ? (
+        <form
+          onSubmit={handleRequestSubmit}
+          className={cn(
+            "rounded-2xl p-4 space-y-3",
+            isNew ? glassClass : "border border-unison-border bg-unison-bg-elevated",
+          )}
+        >
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <input
+              type="text"
+              required
+              value={reqVideoInput}
+              onChange={(e) => {
+                const v = e.target.value
+                setReqVideoInput(v)
+                const vid = extractVideoId(v)
+                if (/^[a-zA-Z0-9_-]{11}$/.test(vid) && !reqSong && !reqArtist) {
+                  void fetchVideoMetadata(vid).then((meta) => {
+                    if (meta?.song) setReqSong((p) => p || meta.song)
+                    if (meta?.artist) setReqArtist((p) => p || meta.artist)
+                  })
+                }
+              }}
+              placeholder="YouTube Video ID or URL..."
+              className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-1.5 font-mono text-xs text-unison-text placeholder:font-sans placeholder:text-unison-text-muted focus:outline-none"
+            />
+            <input
+              type="text"
+              required
+              value={reqSong}
+              onChange={(e) => setReqSong(e.target.value)}
+              placeholder="Song title..."
+              className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-unison-text placeholder:text-unison-text-muted focus:outline-none"
+            />
+            <div className="flex gap-2">
+              <input
+                type="text"
+                required
+                value={reqArtist}
+                onChange={(e) => setReqArtist(e.target.value)}
+                placeholder="Artist name..."
+                className="flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-unison-text placeholder:text-unison-text-muted focus:outline-none"
+              />
+              <button
+                type="submit"
+                disabled={reqSubmitting}
+                className={cn(chipClass, "shrink-0")}
+              >
+                {reqSubmitting ? <IconLoader2 className="size-3.5 animate-spin" /> : <IconCheck className="size-3.5" />}
+                <span>Request</span>
+              </button>
+            </div>
+          </div>
+          {reqFeedback ? <p className="text-xs text-emerald-400">{reqFeedback}</p> : null}
+        </form>
+      ) : null}
 
       {activeTab === "discover" ? (
         <div className="space-y-16 max-sm:space-y-12">
@@ -476,8 +598,11 @@ export function FeedPage() {
           >
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2">
-                {/* Sort Chips with asc/desc direction flip and 1-3 hotkeys */}
-                <fieldset aria-label="Sort by" className="inline-flex flex-wrap rounded-lg bg-white/[0.02] p-0.5 shadow-[inset_0_0_0_1px_var(--color-unison-border)] gap-0.5">
+                {/* Sort Chips with desc -> asc -> clear cycle and 1-3 hotkeys */}
+                <fieldset
+                  aria-label="Sort by"
+                  className="inline-flex flex-wrap rounded-lg bg-white/[0.02] p-0.5 shadow-[inset_0_0_0_1px_var(--color-unison-border)] gap-0.5"
+                >
                   {(
                     [
                       { key: "newest", desc: "Newest", asc: "Oldest", num: "1" },
@@ -492,14 +617,14 @@ export function FeedPage() {
                         key={key}
                         type="button"
                         aria-pressed={active}
-                        onClick={() => {
-                          setFilters((prev) => {
-                            if (prev.sort === key) {
-                              return { ...prev, sortDir: prev.sortDir === "desc" ? "asc" : "desc" }
-                            }
-                            return { ...prev, sort: key, sortDir: "desc" }
-                          })
-                        }}
+                        title={
+                          active && filters.sortDir === "asc"
+                            ? `${label} (Click to clear sort)`
+                            : active
+                              ? `${label} (Click to flip direction)`
+                              : `Sort by ${desc}`
+                        }
+                        onClick={() => cycleSort(key)}
                         className={cn(
                           "cursor-pointer rounded-md px-2.5 py-1 text-xs font-medium transition-colors inline-flex items-center gap-1",
                           active
@@ -513,7 +638,9 @@ export function FeedPage() {
                             {filters.sortDir === "asc" ? "▲" : "▼"}
                           </span>
                         ) : null}
-                        <kbd className="rounded bg-black/40 px-1 text-[9px] text-unison-text-muted font-mono">{num}</kbd>
+                        <kbd className="rounded bg-black/40 px-1 text-[9px] text-unison-text-muted font-mono">
+                          {num}
+                        </kbd>
                       </button>
                     )
                   })}
@@ -562,18 +689,11 @@ export function FeedPage() {
                   )}
                 >
                   <option value="all">All Languages</option>
-                  <option value="en">English</option>
-                  <option value="ja">Japanese</option>
-                  <option value="ko">Korean</option>
-                  <option value="zh">Chinese</option>
-                  <option value="es">Spanish</option>
-                  <option value="id">Indonesian</option>
-                  <option value="fr">French</option>
-                  <option value="de">German</option>
-                  <option value="pt">Portuguese</option>
-                  <option value="ru">Russian</option>
-                  <option value="vi">Vietnamese</option>
-                  <option value="th">Thai</option>
+                  {curatedLangOptions.map((l) => (
+                    <option key={l.code} value={l.code}>
+                      {l.label} ({l.code})
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -617,7 +737,11 @@ export function FeedPage() {
                     "disabled:opacity-40",
                   )}
                 >
-                  {lookupLoading ? <IconLoader2 className="size-3.5 animate-spin" /> : <IconSearch className="size-3.5" />}
+                  {lookupLoading ? (
+                    <IconLoader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <IconSearch className="size-3.5" />
+                  )}
                   <span>Find</span>
                 </button>
               </form>
@@ -627,9 +751,13 @@ export function FeedPage() {
 
           {/* Entries */}
           {loading ? (
-            <div className="flex h-64 items-center justify-center">
-              <IconLoader2 className="size-7 animate-spin text-unison-text-muted" />
-            </div>
+            isNew ? (
+              <SongCoverTileSkeletons count={12} />
+            ) : (
+              <div className="flex h-64 items-center justify-center">
+                <IconLoader2 className="size-7 animate-spin text-unison-text-muted" />
+              </div>
+            )
           ) : error ? (
             <EmptyState title="Unable to load feed" hint={error} />
           ) : entries.length === 0 ? (
@@ -665,7 +793,7 @@ export function FeedPage() {
             <div className="flex justify-center pt-4">
               <button
                 type="button"
-                onClick={() => loadFeed(false, nextCursor)}
+                onClick={() => void loadFeed(false, nextCursor)}
                 disabled={loadingMore}
                 className={
                   isNew

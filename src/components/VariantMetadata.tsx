@@ -1,12 +1,13 @@
-import { IconBrandYoutube, IconEdit, IconHistory, IconPlayerPlayFilled } from "@tabler/icons-react"
+import { IconHistory, IconLink, IconPencil, IconPlayerPlayFilled } from "@tabler/icons-react"
 import { AnimatePresence, MotionConfig, motion } from "motion/react"
 import { Link } from "react-router-dom"
 import { useBadgeCatalogueOptional } from "@/components/BadgeCatalogueContext"
+import { Chip } from "@/components/council/detail-parts"
 import { Bone } from "@/components/skeleton"
 import { TierChip } from "@/components/TierChip"
 import { Tooltip } from "@/components/Tooltip"
-import { useArtwork, youtubeThumbnailFallbackUrl, youtubeThumbnailUrl } from "@/lib/artwork"
 import { UserAvatar } from "@/components/UserAvatar"
+import { useArtwork, youtubeThumbnailFallbackUrl, youtubeThumbnailUrl } from "@/lib/artwork"
 import { resolveAssetUrl, resolveBadgeImage } from "@/lib/badge-view"
 import { cn } from "@/lib/cn"
 import { LAYOUT_TRANSITION } from "@/lib/motion-variants"
@@ -86,7 +87,6 @@ function Cover({ variant, playerRef, playerActive, onActivatePlayer }: CoverProp
         src={src}
         alt=""
         onLoad={(e) => {
-          // If YouTube returns a 120x90 placeholder for maxresdefault, switch to hqdefault
           if (
             e.currentTarget.naturalWidth <= 120 &&
             e.currentTarget.naturalHeight <= 90 &&
@@ -102,13 +102,10 @@ function Cover({ variant, playerRef, playerActive, onActivatePlayer }: CoverProp
           const mq = `https://i.ytimg.com/vi/${variant.videoId}/mqdefault.jpg`
 
           if (!current.includes("ytimg.com")) {
-            // Art URL failed, try maxres
             e.currentTarget.src = maxRes
           } else if (current.includes("maxresdefault.jpg")) {
-            // maxres failed, try hqdefault
             e.currentTarget.src = hq
           } else if (current.includes("hqdefault.jpg")) {
-            // hqdefault failed, try mqdefault
             e.currentTarget.src = mq
           }
         }}
@@ -329,24 +326,32 @@ export function VariantMetadata({
                 transition={LAYOUT_TRANSITION}
                 className="overflow-hidden"
               >
-                <div className="pt-2.5 pb-3.5">
+                <div className="pt-2 pb-1">
                   <TrackHeading variant={variant} />
                 </div>
               </motion.div>
             ) : null}
           </AnimatePresence>
         </MotionConfig>
-        <div className="space-y-3.5">
-          {variant.hidden ? (
-            <div className="rounded-lg border border-unison-warn/40 bg-unison-warn/10 px-2.5 py-2 text-[11.5px] font-medium text-unison-warn">
-              This variant has been auto-hidden by community downvotes.
-            </div>
+        <div className="space-y-3.5 pt-1.5">
+          {variant.marks && variant.marks.length > 0 ? (
+            <>
+              <div className="space-y-2.5">
+                {variant.marks.map((mark) => (
+                  <MarkCallout key={mark.type} mark={mark} />
+                ))}
+              </div>
+              <div className="h-px bg-unison-border" />
+            </>
           ) : null}
-          {variant.marks?.map((mark) => (
-            <MarkCallout key={`${mark.type}:${mark.at ?? mark.label}`} mark={mark} />
-          ))}
           <div className="flex flex-wrap gap-1.5">
             <Pill tip={SYNC_TIP[variant.syncType] ?? variant.syncType} gold={variant.syncType === "richsync"}>
+              <span
+                className={cn(
+                  "size-1.5 rounded-full",
+                  variant.syncType === "richsync" ? "bg-unison-medal-gold" : "bg-unison-text-muted",
+                )}
+              />
               {variant.syncType}
             </Pill>
             <Pill tip={FORMAT_TIP[variant.format] ?? variant.format}>{(variant.format ?? "lrc").toUpperCase()}</Pill>
@@ -379,11 +384,8 @@ export function VariantMetadata({
               <div className="h-px bg-unison-border" />
               <div className="flex items-center justify-between gap-2.5 text-[11.5px] text-unison-text-muted">
                 <span>Most Wanted</span>
-                <Link
-                  to="/queue"
-                  className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-300 hover:bg-emerald-500/25"
-                >
-                  Fulfilled ({variant.fulfilled.requestCount})
+                <Link to="/queue" className="transition-opacity hover:opacity-85">
+                  <Chip tone="good">Fulfilled · {variant.fulfilled.requestCount}</Chip>
                 </Link>
               </div>
             </>
@@ -407,39 +409,37 @@ export function VariantMetadata({
           {(onOpenVideos || onOpenHistory || onOpenEdit) && (
             <>
               <div className="h-px bg-unison-border" />
-              <div className="space-y-1.5 pt-0.5">
-                <div className="grid grid-cols-2 gap-1.5">
-                  {onOpenVideos && (
-                    <button
-                      type="button"
-                      onClick={onOpenVideos}
-                      className="flex items-center justify-center gap-1.5 rounded-[9px] border border-unison-border bg-unison-surface py-2 px-2 text-[12px] font-medium text-unison-text-secondary hover:text-unison-text hover:bg-unison-bg-hover transition-colors cursor-pointer"
-                    >
-                      <IconBrandYoutube className="size-3.5 text-red-500" />
-                      <span>Videos</span>
-                    </button>
-                  )}
-                  {onOpenHistory && (
-                    <button
-                      type="button"
-                      onClick={onOpenHistory}
-                      className="flex items-center justify-center gap-1.5 rounded-[9px] border border-unison-border bg-unison-surface py-2 px-2 text-[12px] font-medium text-unison-text-secondary hover:text-unison-text hover:bg-unison-bg-hover transition-colors cursor-pointer"
-                    >
-                      <IconHistory className="size-3.5 text-unison-text-secondary" />
-                      <span>Revisions</span>
-                    </button>
-                  )}
-                </div>
-                {onOpenEdit && isOwner && (
+              <div className="flex flex-wrap gap-1.5 pt-0.5">
+                {onOpenEdit && isOwner ? (
                   <button
                     type="button"
                     onClick={onOpenEdit}
-                    className="w-full flex items-center justify-center gap-1.5 rounded-[9px] border border-unison-border bg-unison-surface py-2 px-2.5 text-[12px] font-semibold text-unison-text hover:bg-unison-bg-hover transition-colors cursor-pointer"
+                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-unison-border bg-unison-surface px-2.5 py-1.5 text-xs font-medium text-unison-text transition-colors hover:bg-unison-bg-hover"
                   >
-                    <IconEdit className="size-3.5 text-unison-text-secondary" />
-                    <span>Edit Metadata & Lyrics</span>
+                    <IconPencil className="size-3.5 text-unison-text-secondary" stroke={1.75} />
+                    <span>Edit lyrics</span>
                   </button>
-                )}
+                ) : null}
+                {onOpenHistory ? (
+                  <button
+                    type="button"
+                    onClick={onOpenHistory}
+                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-unison-border bg-unison-surface px-2.5 py-1.5 text-xs font-medium text-unison-text-secondary transition-colors hover:bg-unison-bg-hover hover:text-unison-text"
+                  >
+                    <IconHistory className="size-3.5" stroke={1.75} />
+                    <span>Revisions</span>
+                  </button>
+                ) : null}
+                {onOpenVideos ? (
+                  <button
+                    type="button"
+                    onClick={onOpenVideos}
+                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-unison-border bg-unison-surface px-2.5 py-1.5 text-xs font-medium text-unison-text-secondary transition-colors hover:bg-unison-bg-hover hover:text-unison-text"
+                  >
+                    <IconLink className="size-3.5" stroke={1.75} />
+                    <span>Linked videos</span>
+                  </button>
+                ) : null}
               </div>
             </>
           )}

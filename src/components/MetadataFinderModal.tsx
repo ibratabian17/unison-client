@@ -1,22 +1,18 @@
 import { useCallback, useEffect, useState } from "react"
+import { IconDisc, IconSearch, IconX } from "@tabler/icons-react"
+import { CouncilOverlay } from "@/components/council/CouncilOverlay"
+import { Segmented } from "@/components/council/Segmented"
+import { Chip } from "@/components/council/detail-parts"
+import { Bone } from "@/components/skeleton"
+import { buttonClass, chipIconClass, glassClass, raisedChipClass } from "@/components/ui"
+import { useUiMode } from "@/context/UiModeContext"
 import {
   type BiniLinkResolvedTrack,
   enrichTrackViaBiniLink,
   lookupBiniLink,
   searchSongsViaBiniLink,
 } from "@/lib/binilink"
-import { chipClass, popoverSurfaceClass } from "@/components/ui"
-import { useUiMode } from "@/context/UiModeContext"
 import { cn } from "@/lib/cn"
-import {
-  IconBarcode,
-  IconClock,
-  IconDisc,
-  IconLoader2,
-  IconMusic,
-  IconSearch,
-  IconX,
-} from "@tabler/icons-react"
 
 export interface SelectedMetadata {
   song: string
@@ -36,14 +32,19 @@ interface MetadataFinderModalProps {
   onSelect: (metadata: SelectedMetadata) => void
 }
 
+type LookupMode = "search" | "isrc" | "spotify" | "apple_music" | "tidal" | "youtube"
+
+const glassFieldClass =
+  "w-full rounded-[10px] bg-white/[0.04] px-3 py-2 text-sm text-unison-text placeholder:text-unison-text-muted shadow-[inset_0_1px_0_rgba(255,255,255,0.08),inset_0_0_0_1px_rgba(255,255,255,0.08)] focus:bg-white/[0.07] focus:shadow-[inset_0_1px_0_rgba(255,255,255,0.14),inset_0_0_0_1px_rgba(255,255,255,0.2)] focus:outline-none disabled:opacity-60"
+const solidFieldClass =
+  "w-full rounded-md border border-unison-border bg-unison-bg px-3 py-2 text-sm text-unison-text placeholder:text-unison-text-muted focus:border-unison-border-strong focus:outline-none disabled:opacity-60"
+
 function formatDurationSec(seconds?: number): string {
   if (!seconds || seconds <= 0) return ""
   const m = Math.floor(seconds / 60)
   const s = seconds % 60
   return `${m}:${s.toString().padStart(2, "0")}`
 }
-
-type LookupMode = "search" | "isrc" | "spotify" | "apple_music" | "tidal" | "youtube"
 
 export function MetadataFinderModal({
   isOpen,
@@ -53,6 +54,9 @@ export function MetadataFinderModal({
 }: MetadataFinderModalProps) {
   const { uiMode } = useUiMode()
   const isNew = uiMode === "new"
+  const fieldClass = isNew ? glassFieldClass : solidFieldClass
+  const dividerClass = isNew ? "border-white/[0.06]" : "border-unison-border"
+
   const [query, setQuery] = useState(initialQuery)
   const [mode, setMode] = useState<LookupMode>("search")
   const [results, setResults] = useState<BiniLinkResolvedTrack[]>([])
@@ -136,196 +140,152 @@ export function MetadataFinderModal({
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Select Track"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm animate-in fade-in duration-150"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
-      }}
+    <CouncilOverlay
+      open={isOpen}
+      onOpenChange={(val) => (val ? null : onClose())}
+      label="Find song"
+      className="top-1/2 flex max-h-[84vh] w-[min(600px,calc(100vw-32px))] -translate-y-1/2 flex-col"
     >
-      <div
-        className={cn(
-          "flex max-h-[82vh] w-full max-w-xl flex-col overflow-hidden rounded-[22px]",
-          isNew
-            ? popoverSurfaceClass
-            : "border border-unison-border-strong bg-[#121117] shadow-2xl",
-        )}
-      >
-        <div className="flex items-center justify-between border-b border-white/10 px-5 py-3.5">
-          <div className="flex items-center gap-2 text-sm font-bold text-unison-text">
-            <IconMusic className="size-4 text-unison-text-secondary" />
-            <span>Find &amp; Match Song</span>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close modal"
-            className="grid size-7 cursor-pointer place-items-center rounded-full bg-white/[0.06] text-unison-text-secondary transition-colors hover:bg-white/[0.12] hover:text-unison-text"
-          >
-            <IconX className="size-4" />
-          </button>
+      <div className={cn("flex items-center justify-between gap-4 border-b px-6 py-4", dividerClass)}>
+        <div>
+          <h2 className="text-base font-semibold text-unison-text">Find song</h2>
+          <p className="mt-0.5 text-xs text-unison-text-muted">
+            Search the Apple Music catalog or match via BiniLink
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className={cn(
+            glassClass,
+            "grid size-8 cursor-pointer place-items-center rounded-full text-unison-text-secondary transition-[background-color,color,scale] duration-150 ease-out hover:bg-white/[0.14] hover:text-unison-text active:scale-[0.96]",
+          )}
+        >
+          <IconX className="size-[15px]" stroke={2} />
+        </button>
+      </div>
+
+      <form onSubmit={handleSubmit} className={cn("space-y-3 border-b px-6 py-4", dividerClass)}>
+        <div className="overflow-x-auto">
+          <Segmented
+            label="Lookup mode"
+            value={mode}
+            onChange={(next) => {
+              setMode(next)
+              if (query.trim()) void performLookup(query, next)
+            }}
+            options={[
+              { value: "search", label: "Catalog" },
+              { value: "isrc", label: "ISRC" },
+              { value: "spotify", label: "Spotify" },
+              { value: "apple_music", label: "Apple Music" },
+              { value: "tidal", label: "Tidal" },
+              { value: "youtube", label: "YouTube" },
+            ]}
+          />
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-2.5 border-b border-white/10 bg-black/20 p-4">
-          <div className="flex flex-wrap gap-1">
-            {(
-              [
-                ["search", "Apple Music Catalog"],
-                ["isrc", "ISRC"],
-                ["spotify", "Spotify"],
-                ["apple_music", "Apple Music Link/ID"],
-                ["tidal", "Tidal"],
-                ["youtube", "YouTube"],
-              ] as const
-            ).map(([key, label]) => (
+        <div className="flex gap-2">
+          <input
+            type="text"
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={
+              mode === "search"
+                ? "Song title, artist, album, or paste an ISRC or track link…"
+                : `Paste ${mode.replace("_", " ")} ID or URL…`
+            }
+            spellCheck={false}
+            autoComplete="off"
+            className={fieldClass}
+          />
+          <button
+            type="submit"
+            disabled={loading || !query.trim()}
+            className={
+              isNew
+                ? cn(raisedChipClass, "h-[38px] px-3.5 disabled:cursor-not-allowed disabled:opacity-45")
+                : buttonClass("primary", "sm")
+            }
+          >
+            <IconSearch className={chipIconClass} stroke={1.75} />
+            <span>{mode === "search" ? "Search" : "Resolve"}</span>
+          </button>
+        </div>
+      </form>
+
+      <div className="flex-1 space-y-2 overflow-y-auto px-6 py-4">
+        {loading ? (
+          <div className="space-y-2">
+            <Bone className="h-16 w-full rounded-[10px]" />
+            <Bone className="h-16 w-full rounded-[10px]" />
+            <Bone className="h-16 w-full rounded-[10px]" />
+          </div>
+        ) : error ? (
+          <p className="py-10 text-center text-[13px] text-unison-text-muted">{error}</p>
+        ) : results.length === 0 ? (
+          <p className="py-10 text-center text-[13px] text-unison-text-muted">
+            Search by title and artist, or paste an ISRC or streaming link to fill song details.
+          </p>
+        ) : (
+          results.map((item) => {
+            const isResolvingThis = resolvingId === item.id
+            return (
               <button
-                key={key}
+                key={item.id}
                 type="button"
-                onClick={() => {
-                  setMode(key)
-                  if (query.trim()) void performLookup(query, key)
-                }}
+                disabled={Boolean(resolvingId)}
+                onClick={() => void handlePick(item)}
                 className={cn(
-                  "cursor-pointer rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors",
-                  mode === key
-                    ? "bg-white/15 text-unison-text"
-                    : "text-unison-text-muted hover:bg-white/[0.06] hover:text-unison-text",
+                  "flex w-full cursor-pointer items-center justify-between gap-3 p-3 text-left transition-colors disabled:opacity-50",
+                  isNew
+                    ? "rounded-[12px] bg-white/[0.04] shadow-[inset_0_1px_0_rgba(255,255,255,0.06),inset_0_0_0_1px_rgba(255,255,255,0.06)] hover:bg-white/[0.08]"
+                    : "rounded-[10px] bg-white/[0.02] shadow-[inset_0_0_0_1px_var(--color-unison-border)] hover:bg-unison-bg-hover",
                 )}
               >
-                {label}
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="size-11 shrink-0 overflow-hidden rounded-lg bg-unison-surface outline outline-1 -outline-offset-1 outline-white/10">
+                    {item.artworkUrl ? (
+                      <img src={item.artworkUrl} alt="" className="size-full object-cover" />
+                    ) : (
+                      <div className="grid size-full place-items-center text-unison-text-muted">
+                        <IconDisc className="size-4" stroke={1.5} />
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-unison-text">
+                      {item.song || "Resolved track"}
+                    </p>
+                    <p className="truncate text-xs text-unison-text-secondary">
+                      {item.artist || "Unknown artist"}
+                      {item.album ? ` · ${item.album}` : ""}
+                      {item.releaseDate ? ` (${item.releaseDate.slice(0, 4)})` : ""}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex shrink-0 items-center gap-1.5">
+                  {isResolvingThis ? <Chip>Matching…</Chip> : null}
+                  {item.isrc ? (
+                    <Chip>
+                      <span className="font-mono">{item.isrc}</span>
+                    </Chip>
+                  ) : null}
+                  {item.duration ? (
+                    <Chip>
+                      <span className="font-mono">{formatDurationSec(item.duration)}</span>
+                    </Chip>
+                  ) : null}
+                </div>
               </button>
-            ))}
-          </div>
-
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <IconSearch className="absolute left-3 top-2.5 size-3.5 text-unison-text-muted" />
-              <input
-                type="text"
-                autoFocus
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={
-                  mode === "search"
-                    ? "Search song title, artist, album (Apple Music), or paste ISRC/URL..."
-                    : `Paste ${mode.replace("_", " ")} ID or URL...`
-                }
-                className="w-full rounded-xl border border-white/12 bg-black/40 py-2 pr-3 pl-8 text-xs text-unison-text placeholder:text-unison-text-muted focus:border-white/30 focus:outline-none"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={loading || !query.trim()}
-              className={cn(
-                isNew
-                  ? chipClass
-                  : "inline-flex cursor-pointer items-center gap-1.5 rounded-xl bg-unison-text px-3.5 py-2 text-xs font-bold text-[#121117]",
-                "h-auto disabled:opacity-40",
-              )}
-            >
-              {loading ? <IconLoader2 className="size-3.5 animate-spin" /> : <IconSearch className="size-3.5" />}
-              <span>{mode === "search" ? "Search" : "Resolve"}</span>
-            </button>
-          </div>
-        </form>
-
-        <div className="flex-1 space-y-1.5 overflow-y-auto p-3">
-          {loading ? (
-            <div className="flex h-40 flex-col items-center justify-center space-y-2 text-unison-text-muted">
-              <IconLoader2 className="size-5 animate-spin text-unison-text-secondary" />
-              <p className="text-xs">
-                {mode === "search" ? "Searching Apple Music catalog & BiniLink…" : "Resolving on link.binimum.org…"}
-              </p>
-            </div>
-          ) : error ? (
-            <div className="flex h-36 flex-col items-center justify-center p-4 text-center text-xs text-unison-text-muted">
-              <p>{error}</p>
-            </div>
-          ) : results.length === 0 ? (
-            <div className="flex h-40 flex-col items-center justify-center space-y-1 p-4 text-center text-unison-text-muted">
-              <IconMusic className="mb-1 size-6 opacity-30" />
-              <p className="text-xs font-medium text-unison-text">Find Song or Match via BiniLink</p>
-              <p className="max-w-sm text-[11px]">
-                Search by song title, artist, or album, or paste an ISRC / Spotify / Apple Music / Tidal / YouTube link to populate verified metadata.
-              </p>
-            </div>
-          ) : (
-            results.map((item) => {
-              const isResolvingThis = resolvingId === item.id
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  disabled={Boolean(resolvingId)}
-                  onClick={() => void handlePick(item)}
-                  className="group flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3 text-left transition-colors hover:border-white/25 hover:bg-white/[0.08] disabled:opacity-50"
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div className="size-12 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-black/40">
-                      {item.artworkUrl ? (
-                        <img src={item.artworkUrl} alt="" className="size-full object-cover" />
-                      ) : (
-                        <div className="flex size-full items-center justify-center">
-                          <IconDisc className="size-5 opacity-40" />
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="min-w-0 flex-1 space-y-0.5">
-                      <p className="truncate text-sm font-semibold text-unison-text">
-                        {item.song || "Resolved Track"}
-                      </p>
-                      <p className="truncate text-xs text-unison-text-secondary">
-                        {item.artist || "Unknown Artist"}
-                      </p>
-                      {item.album ? (
-                        <p className="truncate text-[11px] text-unison-text-muted">
-                          {item.album}
-                          {item.releaseDate ? ` · ${item.releaseDate.slice(0, 4)}` : ""}
-                        </p>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  <div className="flex shrink-0 flex-col items-end gap-1 font-mono text-[10px] text-unison-text-muted">
-                    {isResolvingThis ? (
-                      <span className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/10 px-2 py-0.5 text-unison-text">
-                        <IconLoader2 className="size-3 animate-spin" />
-                        Enriching…
-                      </span>
-                    ) : null}
-                    {item.isrc ? (
-                      <span className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 text-unison-text">
-                        <IconBarcode className="size-3 text-unison-text-secondary" />
-                        {item.isrc}
-                      </span>
-                    ) : null}
-                    {item.duration ? (
-                      <span className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5">
-                        <IconClock className="size-3 text-unison-text-secondary" />
-                        {formatDurationSec(item.duration)}
-                      </span>
-                    ) : null}
-                  </div>
-                </button>
-              )
-            })
-          )}
-        </div>
-
-        <div className="flex items-center justify-between border-t border-white/10 bg-black/20 px-4 py-2.5 text-[11px] text-unison-text-muted">
-          <span>Powered by Apple Music &amp; BiniLink (link.binimum.org)</span>
-          <button
-            type="button"
-            onClick={onClose}
-            className="cursor-pointer rounded-lg px-2.5 py-1 text-xs text-unison-text-secondary transition-colors hover:bg-white/10 hover:text-unison-text"
-          >
-            Cancel
-          </button>
-        </div>
+            )
+          })
+        )}
       </div>
-    </div>
+    </CouncilOverlay>
   )
 }

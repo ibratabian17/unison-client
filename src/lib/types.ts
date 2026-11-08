@@ -1,3 +1,15 @@
+import type { PendingReason } from "./council-types"
+import type {
+  DiffPart,
+  DiffRow,
+  FieldCheck,
+  PreviewResult,
+  RevisionDetail,
+  RevisionDiff,
+  RevisionStatus,
+  RevisionSummary,
+} from "./revision-types"
+
 export type LyricsFormat = "ttml" | "lrc" | "plain"
 export type SyncType = "richsync" | "linesync" | "plain"
 export type Confidence = "low" | "medium" | "high"
@@ -199,6 +211,17 @@ export interface VariantSummary {
 
 export interface VariantRevision {
   revNo: number
+  count?: number
+  pending?: {
+    revNo: number
+    pendingReason: PendingReason
+    textDrift: number
+    timingDrift: number
+  } | null
+  lastRejected?: {
+    revNo: number
+    reviewNote: string | null
+  } | null
   updatedAt: number
 }
 
@@ -325,7 +348,6 @@ export type AvatarChoice =
   | { type: "discord" }
   | { type: "default" }
 
-
 export type FeedSort = "default" | "newest" | "top-rated" | "most-voted"
 export type FeedSortDir = "desc" | "asc"
 export type FeedSyncType = "all" | "richsync" | "linesync" | "plain"
@@ -383,35 +405,60 @@ export interface UnisonSubmission {
 
 export interface LyricRevision {
   id: number
-  lyricId: number
+  lyricId?: number
   version?: number
   revNo?: number
   lyrics?: string
   format?: LyricsFormat
-  language?: string
-  album?: string
-  isrc?: string
-  status: string
+  language?: string | null
+  album?: string | null
+  isrc?: string | null
+  status: RevisionStatus | string
+  pendingReason?: PendingReason | null
+  isAnchor?: boolean
+  textDrift?: number
+  timingDrift?: number
+  revertsRevNo?: number | null
+  reviewNote?: string | null
   createdAt: number
+  reviewedAt?: number | null
   author?: {
-    keyId: string
+    keyId?: string
     displayName: string
     avatarUrl?: string | null
-  }
+  } | null
 }
 
 export interface LinkedVideo {
   videoId: string
   primary?: boolean
+  isPrimary?: boolean
   createdAt?: number
 }
+
+export type SuggestedVideoMatchLevel = "same" | "related" | "different"
 
 export interface VideoSuggestion {
   videoId: string
   title: string
+  artist?: string
+  album?: string
   author?: string
+  videoType?: "song" | "video"
   duration?: number
+  durationSeconds?: number
+  matchScore?: number
+  match?: { level: SuggestedVideoMatchLevel; score: number } | null
   thumbnailUrl?: string
 }
 
-export type { RevisionDiff, RevisionSummary, DiffRow, DiffPart } from "./revision-types"
+export type {
+  RevisionDiff,
+  RevisionSummary,
+  RevisionDetail,
+  RevisionStatus,
+  FieldCheck,
+  PreviewResult,
+  DiffRow,
+  DiffPart,
+}
