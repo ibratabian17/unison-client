@@ -1,21 +1,21 @@
 import {
   type Identity,
+  type SignedBody,
   clearStoredSession,
   fetchChallenge,
   fetchMe,
   loadStoredSession,
   postSession,
   revokeSession,
-  type SignedBody,
   saveStoredSession,
 } from "@/lib/auth"
-import { BL_EXTENSION_ID, findBetterLyrics, signInWithBetterLyrics } from "@/lib/extension"
-import { signInWithIdentityFile } from "@/lib/identity-file"
 import {
   clearActiveBrowserIdentity,
   exportBrowserIdentityFile,
   signChallengeWithDefaultIdentity,
 } from "@/lib/browser-identity"
+import { BL_EXTENSION_ID, findBetterLyrics, signInWithBetterLyrics } from "@/lib/extension"
+import { signInWithIdentityFile } from "@/lib/identity-file"
 import { type ReactNode, createContext, useCallback, useContext, useEffect, useRef, useState } from "react"
 
 type SessionState =
@@ -113,6 +113,34 @@ export function AuthProvider({ children }: AuthProviderProps) {
     }
   }, [])
 
+  // Refresh session on window focus when awaiting first lyric (newest OG Unison behavior)
+  const awaitingFirstLyric = phase.kind === "signed-in" && phase.identity.canSuggest === false
+  useEffect(() => {
+    if (!awaitingFirstLyric) return
+    let cancelled = false
+    const refresh = () => {
+      const stored = loadStoredSession()
+      if (!stored) return
+      fetchMe(stored.sessionToken).then(
+        (identity) => {
+          if (cancelled || loadStoredSession()?.sessionToken !== stored.sessionToken) return
+          saveStoredSession({ ...identity, sessionToken: stored.sessionToken })
+          setPhase((prev) =>
+            prev.kind === "signed-in" && prev.identity.keyId === identity.keyId
+              ? { kind: "signed-in", identity }
+              : prev,
+          )
+        },
+        (error) => console.warn("Could not refresh the session", error),
+      )
+    }
+    window.addEventListener("focus", refresh)
+    return () => {
+      cancelled = true
+      window.removeEventListener("focus", refresh)
+    }
+  }, [awaitingFirstLyric])
+
   const completeSignIn = useCallback(async (sign: (nonce: string) => Promise<SignedBody>) => {
     if (signInLock.current) return
     signInLock.current = true
@@ -130,6 +158,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           expiresAt: session.expiresAt,
           avatarUrl: session.avatarUrl,
           council: session.council ?? null,
+          canSuggest: session.canSuggest,
         },
       })
     } catch (err) {
@@ -145,21 +174,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
     [completeSignIn],
   )
 
-  const signInWithExtension = useCallback(
-    () => {
-      const extId = extensionId || BL_EXTENSION_ID
-      return completeSignIn((nonce) => signInWithBetterLyrics(nonce, extId))
-    },
-    [completeSignIn, extensionId],
-  )
+  const signInWithExtension = useCallback(() => {
+    const extId = extensionId || BL_EXTENSION_ID
+    return completeSignIn((nonce) => signInWithBetterLyrics(nonce, extId))
+  }, [completeSignIn, extensionId])
 
-  const signIn = useCallback(
-    () => {
-      const extId = extensionId || BL_EXTENSION_ID
-      return completeSignIn((nonce) => signInWithBetterLyrics(nonce, extId))
-    },
-    [completeSignIn, extensionId],
-  )
+  const signIn = useCallback(() => {
+    const extId = extensionId || BL_EXTENSION_ID
+    return completeSignIn((nonce) => signInWithBetterLyrics(nonce, extId))
+  }, [completeSignIn, extensionId])
 
   const signInWithFile = useCallback(
     (file: File) => completeSignIn((nonce) => signInWithIdentityFile(file, nonce)),

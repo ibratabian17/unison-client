@@ -1,7 +1,8 @@
 import { cn } from "@/lib/cn"
 import { plural } from "@/lib/format"
-import { languageName } from "@/lib/language"
+import { FIELD_LABEL, fieldValueText } from "@/lib/revision-fields"
 import type { DiffPart, DiffRow, HeadTextRef, SyllableChange } from "@/lib/revision-types"
+import { IconArrowRight } from "@tabler/icons-react"
 import type { ReactNode } from "react"
 
 export type DiffMode = "unified" | "split"
@@ -10,14 +11,14 @@ type LineKind = "same" | "add" | "del" | "timing"
 
 interface Line {
   kind: LineKind
-  lineNo: number | string
+  lineNo: number
   prefix: string
   body: ReactNode
   note?: string
 }
 
-function stamp(ms: number | null | undefined): string {
-  if (ms === null || ms === undefined || Number.isNaN(ms)) return ""
+function stamp(ms: number | null): string {
+  if (ms === null) return ""
   const pad = (n: number) => String(n).padStart(2, "0")
   return `[${pad(Math.floor(ms / 60000))}:${pad(Math.floor((ms % 60000) / 1000))}.${pad(Math.floor((ms % 1000) / 10))}] `
 }
@@ -34,7 +35,7 @@ function marked(parts: DiffPart[], keep: "-" | "+"): ReactNode {
     .map(([op, text], i) => (op === "=" ? text : <mark key={`${i}-${text}`}>{text}</mark>))
 }
 
-function timingNote(deltaMs: number): string {
+export function timingNote(deltaMs: number): string {
   return `${(Math.abs(deltaMs) / 1000).toFixed(2)} s ${deltaMs < 0 ? "earlier" : "later"}`
 }
 
@@ -45,23 +46,8 @@ function syllableNote(change: SyllableChange): string | undefined {
   return undefined
 }
 
-type DiffField = Extract<DiffRow, { kind: "field" }>["field"]
-
-const FIELD_NAMES: Record<DiffField, string> = {
-  language: "Language",
-  isrc: "ISRC",
-  album: "Album",
-  song: "Title",
-  artist: "Artist",
-}
-
-function formatFieldVal(field: DiffField, val: string | null): string {
-  if (!val) return ""
-  if (field !== "language") return val
-  const name = languageName(val)
-  return name === val ? val : `${name} (${val})`
-}
-
+type FieldRow = Extract<DiffRow, { kind: "field" }>
+type LineRow = Exclude<DiffRow, { kind: "field" }>
 type SyllableRow = Extract<DiffRow, { kind: "syllable" }>
 type TimingRow = Extract<DiffRow, { kind: "timing" }>
 
@@ -114,20 +100,11 @@ function resyncedLine(row: Resynced, which: "before" | "after", startMs: number 
 
 type Item = { gap: { count: number } } | { line: Line }
 
-function unified(rows: DiffRow[]): Item[] {
+function unified(rows: LineRow[]): Item[] {
   return rows.flatMap((row): Item[] => {
     switch (row.kind) {
       case "gap":
         return [{ gap: row }]
-      case "field": {
-        const prefix = `[${FIELD_NAMES[row.field] ?? row.field}] `
-        const before = formatFieldVal(row.field, row.before)
-        const after = formatFieldVal(row.field, row.after)
-        const out: Item[] = []
-        if (before) out.push({ line: { kind: "del", lineNo: "meta", prefix, body: before } })
-        if (after) out.push({ line: { kind: "add", lineNo: "meta", prefix, body: after } })
-        return out
-      }
       case "word": {
         const prefix = stamp(row.startMs) + label(row.head)
         return [
@@ -160,26 +137,11 @@ function unified(rows: DiffRow[]): Item[] {
   })
 }
 
-function side(rows: DiffRow[], which: "before" | "after"): Item[] {
+function side(rows: LineRow[], which: "before" | "after"): Item[] {
   return rows.flatMap((row): Item[] => {
     switch (row.kind) {
       case "gap":
         return [{ gap: row }]
-      case "field": {
-        const prefix = `[${FIELD_NAMES[row.field] ?? row.field}] `
-        const val = formatFieldVal(row.field, which === "before" ? row.before : row.after)
-        if (!val) return []
-        return [
-          {
-            line: {
-              kind: which === "before" ? "del" : "add",
-              lineNo: "meta",
-              prefix,
-              body: val,
-            },
-          },
-        ]
-      }
       case "same":
         return [
           { line: { kind: "same", lineNo: row.lineNo, prefix: stamp(row.startMs) + label(row.head), body: row.text } },
@@ -231,12 +193,11 @@ const ROW_TONE: Record<LineKind, string> = {
 }
 
 function Rows({ items }: { items: Item[] }) {
-  let lastLine: number | string = 0
-  return items.map((item, idx) => {
+  return items.map((item, index) => {
     if ("gap" in item) {
       return (
         <div
-          key={`gap-after-${lastLine}-${idx}`}
+          key={`${index}-gap-${item.gap.count}`}
           data-row="gap"
           className="bg-white/[0.03] px-3 py-0.5 text-[11px] text-unison-text-muted"
         >
@@ -245,13 +206,12 @@ function Rows({ items }: { items: Item[] }) {
       )
     }
     const { line } = item
-    lastLine = line.lineNo
     return (
       <div
-        key={`${line.kind}-${line.lineNo}-${line.prefix}-${idx}`}
+        key={`${index}-${line.kind}-${line.lineNo}`}
         data-row={line.kind}
         className={cn(
-          "grid grid-cols-[42px_16px_minmax(0,1fr)] [&_mark]:rounded-[3px] [&_mark]:px-px",
+          "grid grid-cols-[36px_16px_minmax(0,1fr)] [&_mark]:rounded-[3px] [&_mark]:px-px",
           ROW_TONE[line.kind],
         )}
       >
@@ -267,25 +227,48 @@ function Rows({ items }: { items: Item[] }) {
   })
 }
 
+function Fields({ fields, divided }: { fields: FieldRow[]; divided: boolean }) {
+  return (
+    <div className={cn("py-1", divided && "shadow-[inset_0_-1px_0_var(--color-unison-border)]")}>
+      {fields.map((row) => (
+        <div
+          key={row.field}
+          data-row="field"
+          className="grid grid-cols-[88px_minmax(0,1fr)] items-baseline gap-2.5 px-3 [&_del]:rounded-[3px] [&_del]:px-1 [&_del]:no-underline [&_ins]:rounded-[3px] [&_ins]:px-1 [&_ins]:no-underline"
+        >
+          <span className="font-sans text-xs text-unison-text-muted">{FIELD_LABEL[row.field]}</span>
+          <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 break-words">
+            <del className="bg-[rgba(217,95,138,0.16)] text-[#ffd3e2]">{fieldValueText(row.field, row.before)}</del>
+            <IconArrowRight aria-hidden className="size-3 shrink-0 text-unison-text opacity-50" stroke={1.75} />
+            <ins className="bg-[rgba(111,122,240,0.2)] text-[#e3e6ff]">{fieldValueText(row.field, row.after)}</ins>
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export function DiffView({ rows, mode }: { rows: DiffRow[]; mode: DiffMode }) {
-  const frame =
-    "overflow-hidden rounded-[10px] bg-black/[0.18] font-mono text-[12.5px] leading-[1.85] shadow-[inset_0_0_0_1px_var(--color-unison-border)]"
-  if (rows.length === 0) return <p className="text-[13px] text-unison-text-muted">No line changes.</p>
-  if (mode === "split") {
-    return (
-      <div className={cn(frame, "grid grid-cols-2 gap-x-4")}>
-        <div data-side="before" className="min-w-0">
-          <Rows items={side(rows, "before")} />
-        </div>
-        <div data-side="after" className="min-w-0">
-          <Rows items={side(rows, "after")} />
-        </div>
-      </div>
-    )
+  const fields = rows.filter((row): row is FieldRow => row.kind === "field")
+  const lines = rows.filter((row): row is LineRow => row.kind !== "field")
+  if (fields.length === 0 && lines.length === 0) {
+    return <p className="text-[13px] text-unison-text-muted">No line changes.</p>
   }
   return (
-    <div className={frame}>
-      <Rows items={unified(rows)} />
+    <div className="relative overflow-hidden rounded-[10px] bg-black/[0.18] font-mono text-[12.5px] leading-[1.85] after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:shadow-[inset_0_0_0_1px_var(--color-unison-border)]">
+      {fields.length > 0 ? <Fields fields={fields} divided={lines.length > 0} /> : null}
+      {lines.length === 0 ? null : mode === "split" ? (
+        <div className="grid grid-cols-2 gap-x-4">
+          <div data-side="before" className="min-w-0">
+            <Rows items={side(lines, "before")} />
+          </div>
+          <div data-side="after" className="min-w-0">
+            <Rows items={side(lines, "after")} />
+          </div>
+        </div>
+      ) : (
+        <Rows items={unified(lines)} />
+      )}
     </div>
   )
 }

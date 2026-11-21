@@ -1,40 +1,57 @@
 import { resolveApiPath } from "./api-url"
-import { loadStoredSession } from "./auth"
 import { hasSigningKeyFor, signPayload } from "./browser-identity"
-import { AUTHED_FETCH_ERRORS, authedFetch } from "./authedFetch"
 import { normalizeLanguage, toLyricsTranslateLang } from "./languages"
 import { normalizeIsrc } from "./lyrics-parser"
-import { IS_SPA_EXPANSION_SEED } from "./seed-flag"
+import type {
+  FeedFilters,
+  FeedResponse,
+  LinkedVideo,
+  LyricRevision,
+  LyricsFormat,
+  VideoSuggestion,
+} from "./types"
+import { loadStoredSession } from "./auth"
+import { AUTHED_FETCH_ERRORS, authedFetch } from "./authedFetch"
 import type { ReportReason } from "./report-reasons"
 import type {
+  PreviewResult,
+  RevisionDetail,
+  RevisionDiff,
+  RevisionInput,
+  RevisionSummary,
+  SuggestionInboxItem,
+} from "./revision-types"
+import { IS_SPA_EXPANSION_SEED } from "./seed-flag"
+import type {
   ApiEnvelope,
-  FeedEntry,
-  Page,
-  ProfileSettings,
-  SealedSort,
-  SealedSyncFilter,
-  SubmissionSort,
-  SubmissionSyncType,
   AvatarCatalogue,
   AvatarChoice,
   BadgeCatalogue,
   CuratorsLeaderboardResponse,
   DumpManifest,
-  LinkedVideo,
-  LyricRevision,
-  LyricsFormat,
+  FeedEntry,
   LyricsSearchHit,
+  NotificationList,
+  NotificationSettings,
+  Page,
+  ProfileSettings,
   QueueEntry,
-  RevisionDiff,
-  RevisionSummary,
+  SealedSort,
+  SealedSyncFilter,
   SongsLeaderboardResponse,
+  SubmissionSort,
+  SubmissionSyncType,
+  SuggestionDecider,
   UserGamification,
   UserRankResponse,
   UserSubmissionsResponse,
   VariantFull,
   VariantSummary,
-  VideoSuggestion,
 } from "./types"
+
+export function isNotFound(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith("HTTP 404 ")
+}
 
 async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(resolveApiPath(path))
@@ -66,8 +83,8 @@ export async function fetchUserByHandle(handle: string): Promise<{ keyId: string
 
 export interface UserSubmissionsQuery {
   search?: string
-  syncType?: import("./types").SubmissionSyncType
-  sort?: import("./types").SubmissionSort
+  syncType?: SubmissionSyncType
+  sort?: SubmissionSort
   cursor?: string
 }
 
@@ -104,7 +121,6 @@ export async function putAvatar(choice: AvatarChoice): Promise<{ avatarUrl: stri
     body: JSON.stringify(choice),
   })
 }
-
 
 export async function putProfileSettings(change: Partial<ProfileSettings>): Promise<ProfileSettings> {
   if (IS_SPA_EXPANSION_SEED) return (await import("./dev-seed")).seedSetProfileSettings(change)
@@ -190,17 +206,76 @@ export async function fetchLyricsVariant(
   return { variant }
 }
 
-export async function fetchArtwork(videoId: string, size?: number): Promise<string | null> {
+export function fetchRevisionDiff(
+  lyricsId: number,
+  revisionId: number,
+  againstOrSignal?: number | AbortSignal,
+  signal?: AbortSignal,
+): Promise<RevisionDiff> {
+  const isSignal = againstOrSignal instanceof AbortSignal
+  const against = isSignal ? undefined : againstOrSignal
+  const sig = isSignal ? againstOrSignal : signal
+  const query = against !== undefined ? `?against=${encodeURIComponent(String(against))}` : ""
+  return getJsonWithSignal<RevisionDiff>(`/lyrics/${lyricsId}/revisions/${revisionId}/diff${query}`, sig)
+}
+
+export function fetchRevisionDetail(
+  lyricsId: number,
+  revisionId: number,
+  signal?: AbortSignal,
+): Promise<RevisionDetail> {
+  return getJsonWithSignal(`/lyrics/${lyricsId}/revisions/${revisionId}`, signal)
+}
+
+export async function fetchRevisions(lyricsId: number, signal?: AbortSignal): Promise<RevisionSummary[]> {
+  const { revisions } = await getJsonWithSignal<{ revisions: RevisionSummary[] }>(
+    `/lyrics/${lyricsId}/revisions`,
+    signal,
+  )
+  return revisions
+}
+
+const JSON_HEADERS = { "content-type": "application/json" }
+
+export function previewRevision(lyricsId: number, input: RevisionInput): Promise<PreviewResult> {
+  return authedFetch<PreviewResult>(`/lyrics/${lyricsId}/revisions/preview`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(input),
+  })
+}
+
+export function submitRevision(
+  lyricsId: number,
+  input: RevisionInput & { note?: string },
+): Promise<{ revision: RevisionSummary; decider?: SuggestionDecider }> {
+  return authedFetch<{ revision: RevisionSummary; decider?: SuggestionDecider }>(`/lyrics/${lyricsId}/revisions`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(input),
+  })
+}
+
+export function withdrawPendingRevision(lyricsId: number): Promise<{ revision: RevisionSummary }> {
+  return authedFetch<{ revision: RevisionSummary }>(`/lyrics/${lyricsId}/revisions/pending`, { method: "DELETE" })
+}
+
+export function fetchMySuggestions(signal?: AbortSignal): Promise<SuggestionInboxItem[]> {
+  return authedFetch<SuggestionInboxItem[]>("/lyrics/mine/suggestions", { signal })
+}
+
+export interface ArtworkCover {
+  url: string
+  fallbackUrl: string | null
+}
+
+export async function fetchArtwork(videoId: string, size?: number): Promise<ArtworkCover | null> {
   if (IS_SPA_EXPANSION_SEED) return null
   const sized = size !== undefined ? `&size=${size}` : ""
-  try {
-    const { artworkUrl } = await getJson<{ artworkUrl: string | null }>(
-      `/artwork?v=${encodeURIComponent(videoId)}${sized}`,
-    )
-    return artworkUrl ?? null
-  } catch {
-    return null
-  }
+  const { artworkUrl, fallbackUrl } = await getJson<{ artworkUrl: string | null; fallbackUrl?: string }>(
+    `/artwork?v=${encodeURIComponent(videoId)}${sized}`,
+  )
+  return artworkUrl ? { url: artworkUrl, fallbackUrl: fallbackUrl ?? null } : null
 }
 
 async function unwrapMutationError(res: Response): Promise<never> {
@@ -230,60 +305,39 @@ export async function unvoteVariant(id: number): Promise<void> {
   await authedFetch<unknown>(`/lyrics/${id}/vote`, { method: "DELETE" })
 }
 
-export async function reportVariant(
-  id: number,
-  reason: ReportReason,
-  details?: string,
-): Promise<void> {
+export async function reportVariant(id: number, reason: ReportReason, details?: string): Promise<void> {
   if (IS_SPA_EXPANSION_SEED) return (await import("./dev-seed-spa-expansion")).seedReport(id, reason, details)
-  const session = loadStoredSession()
-  if (session?.sessionToken) {
-    const body = details !== undefined ? { reason, details } : { reason }
-    await authedFetch<unknown>(`/lyrics/${id}/report`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    })
-    return
-  }
-  const data: Record<string, unknown> = { reason }
-  if (details) data.details = details
-  const signed = await signPayload(data)
-  const res = await fetch(resolveApiPath(`/lyrics/${id}/report`), {
+  const body = details !== undefined ? { reason, details } : { reason }
+  await authedFetch<unknown>(`/lyrics/${id}/report`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(signed),
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
   })
-  if (!res.ok) {
-    const errJson = await res.json().catch(() => null)
-    throw new Error(errJson?.error ?? `HTTP ${res.status}`)
-  }
 }
 
 const QUEUE_PAGE_LIMIT = 50
 
-export async function fetchQueue(opts: { cursor?: string; signal?: AbortSignal } = {}): Promise<import("./types").Page<QueueEntry>> {
+export async function fetchQueue(opts: { cursor?: string; signal?: AbortSignal } = {}): Promise<Page<QueueEntry>> {
   if (IS_SPA_EXPANSION_SEED) return (await import("./dev-seed-spa-expansion")).seedQueue({ cursor: opts.cursor })
   const search = new URLSearchParams()
   search.set("cursor", opts.cursor ?? "")
   search.set("limit", String(QUEUE_PAGE_LIMIT))
-  return getPage<QueueEntry>(resolveApiPath(`/leaderboard/songs?${search.toString()}`), opts.signal)
+  return getPage<QueueEntry>(`/leaderboard/songs?${search.toString()}`, opts.signal)
 }
 
 export async function fetchSealed(opts: {
-  sort: import("./types").SealedSort
+  sort: SealedSort
   limit: number
-  syncType?: import("./types").SealedSyncFilter
+  syncType?: SealedSyncFilter
   cursor?: string
   signal?: AbortSignal
-}): Promise<import("./types").Page<import("./types").FeedEntry>> {
+}): Promise<Page<FeedEntry>> {
   if (IS_SPA_EXPANSION_SEED) return (await import("./dev-seed-spa-expansion")).seedSealed(opts)
   const search = new URLSearchParams({ sealed: "1", sort: opts.sort, limit: String(opts.limit) })
   if (opts.syncType) search.set("syncType", opts.syncType)
   if (opts.cursor) search.set("cursor", opts.cursor)
-  return getPage<import("./types").FeedEntry>(resolveApiPath(`/feed?${search.toString()}`), opts.signal)
+  return getPage<FeedEntry>(`/feed?${search.toString()}`, opts.signal)
 }
-
 
 export type FeedGridSort = "newest" | "top-rated"
 
@@ -293,11 +347,11 @@ export async function fetchFeedGrid(opts: {
   signal?: AbortSignal
 }): Promise<Page<FeedEntry>> {
   const search = new URLSearchParams({ sort: opts.sort, limit: String(opts.limit) })
-  return getPage<FeedEntry>(resolveApiPath(`/feed?${search.toString()}`), opts.signal)
+  return getPage<FeedEntry>(`/feed?${search.toString()}`, opts.signal)
 }
 
-async function getPage<T>(path: string, signal?: AbortSignal): Promise<import("./types").Page<T>> {
-  const res = await fetch(path, signal ? { signal } : undefined)
+async function getPage<T>(path: string, signal?: AbortSignal): Promise<Page<T>> {
+  const res = await fetch(resolveApiPath(path), signal ? { signal } : undefined)
   if (!res.ok) await unwrapMutationError(res)
   const body = (await res.json()) as ApiEnvelope<T[]> & { nextCursor?: string | number | null }
   if (!body.success) throw new Error(body.error)
@@ -315,6 +369,40 @@ export async function fetchDumpManifest(): Promise<DumpManifest> {
     throw new Error("manifest is malformed")
   }
 }
+
+export function fetchUnreadNotifications(signal?: AbortSignal): Promise<{ unread: number }> {
+  return authedFetch<{ unread: number }>("/notifications/unread", { signal })
+}
+
+export function fetchNotifications(signal?: AbortSignal): Promise<NotificationList> {
+  return authedFetch<NotificationList>("/notifications", { signal })
+}
+
+export async function markNotificationsSeen(): Promise<void> {
+  await authedFetch<unknown>("/notifications/seen", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  })
+}
+
+export function fetchNotificationSettings(signal?: AbortSignal): Promise<NotificationSettings> {
+  return authedFetch<NotificationSettings>("/notifications/settings", { signal })
+}
+
+export async function putNotificationSettings(settings: NotificationSettings): Promise<void> {
+  await authedFetch<unknown>("/notifications/settings", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(settings),
+  })
+}
+
+
+// =============================================================================
+// Composer, Better-Lyrics & Standalone Client Write/Utility API Extensions
+// =============================================================================
+
 
 export async function fetchFeed(
   filters?: Partial<import("./types").FeedFilters>,
@@ -582,24 +670,6 @@ export async function translateLyrics(
   }
 }
 
-export function isNotFound(err: unknown): boolean {
-  if (err && typeof err === "object" && "status" in err && (err as { status: number }).status === 404) return true
-  if (err instanceof Error) return /404|not found/i.test(err.message)
-  return false
-}
-
-export async function fetchRevisions(lyricsId: number, signal?: AbortSignal): Promise<RevisionSummary[]> {
-  try {
-    const { revisions } = await getJsonWithSignal<{ revisions: RevisionSummary[] }>(
-      `/lyrics/${lyricsId}/revisions`,
-      signal,
-    )
-    return revisions ?? []
-  } catch {
-    return []
-  }
-}
-
 export async function fetchLyricRevisions(lyricId: number): Promise<{ revisions: LyricRevision[] }> {
   try {
     const res = await fetch(resolveApiPath(`/lyrics/${lyricId}/revisions`))
@@ -608,25 +678,6 @@ export async function fetchLyricRevisions(lyricId: number): Promise<{ revisions:
     return { revisions: json.data?.revisions ?? [] }
   } catch {
     return { revisions: [] }
-  }
-}
-
-export async function fetchRevisionDiff(
-  lyricId: number,
-  revId: number,
-  againstOrSignal?: number | AbortSignal,
-  signal?: AbortSignal,
-): Promise<RevisionDiff | null> {
-  try {
-    const against = typeof againstOrSignal === "number" ? againstOrSignal : undefined
-    const sig = againstOrSignal instanceof AbortSignal ? againstOrSignal : signal
-    const query = against !== undefined ? `?against=${against}` : ""
-    const res = await fetch(resolveApiPath(`/lyrics/${lyricId}/revisions/${revId}/diff${query}`), { signal: sig })
-    if (!res.ok) return null
-    const json = await res.json()
-    return json.data ?? null
-  } catch {
-    return null
   }
 }
 
@@ -868,21 +919,6 @@ export async function requestLyrics(input: {
 
 export type RevisionPreviewData = import("./revision-types").PreviewResult
 
-export async function fetchRevisionDetail(
-  lyricId: number,
-  revId: number,
-  signal?: AbortSignal,
-): Promise<import("./revision-types").RevisionDetail | null> {
-  try {
-    const res = await fetch(resolveApiPath(`/lyrics/${lyricId}/revisions/${revId}`), { signal })
-    if (!res.ok) return null
-    const json = await res.json()
-    return json.data ?? null
-  } catch {
-    return null
-  }
-}
-
 export interface RevisionPreviewResponse {
   data: RevisionPreviewData | null
   errorCode?: string
@@ -1071,32 +1107,6 @@ export async function rejectLyricRevision(
   }
   const json = await res.json().catch(() => null)
   return json?.data?.revision ?? null
-}
-
-export async function withdrawPendingRevision(lyricId: number): Promise<void> {
-  const session = loadStoredSession()
-  const headers: Record<string, string> = { "Content-Type": "application/json" }
-  let bodyStr: string
-
-  if (session?.sessionToken) {
-    headers["Authorization"] = `Bearer ${session.sessionToken}`
-    headers["X-Key-ID"] = session.keyId
-    bodyStr = JSON.stringify({})
-  } else {
-    const signed = await signPayload({})
-    bodyStr = JSON.stringify(signed)
-  }
-
-  const res = await fetch(resolveApiPath(`/lyrics/${lyricId}/revisions/pending`), {
-    method: "DELETE",
-    headers,
-    body: bodyStr,
-  })
-
-  if (!res.ok) {
-    const errJson = await res.json().catch(() => null)
-    throw new Error(errJson?.hint ?? errJson?.error ?? `HTTP ${res.status}`)
-  }
 }
 
 export async function fetchSuggestedVideosForSong(input: {

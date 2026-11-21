@@ -21,7 +21,6 @@ const fakeSession = {
   signOut: () => {},
   updateDisplayName: (_displayName: string) => {},
   updateAvatarUrl: (_avatarUrl: string | null) => {},
-  exportIdentityFile: async () => {},
 } as const
 
 const baseSection: Omit<DiscordSectionModel, "status"> = {

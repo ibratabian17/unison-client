@@ -1,5 +1,5 @@
 import { type ComponentType, Suspense, lazy } from "react"
-import { type RouteObject, RouterProvider, createBrowserRouter, createHashRouter, Navigate } from "react-router-dom"
+import { Navigate, type RouteObject, RouterProvider, createBrowserRouter, createHashRouter } from "react-router-dom"
 import { AppLayout } from "./components/AppLayout"
 import { MobileGate } from "./components/exam/MobileGate"
 import { AboutPage } from "./pages/AboutPage"
@@ -17,6 +17,7 @@ import { QueuePage } from "./pages/QueuePage"
 import { SealedPage } from "./pages/SealedPage"
 import { SearchPage } from "./pages/SearchPage"
 import { SettingsPage } from "./pages/SettingsPage"
+import { ShowcasePage } from "./pages/ShowcasePage"
 import { SubmitPage } from "./pages/SubmitPage"
 import { TranslatePage } from "./pages/TranslatePage"
 import { UserPage } from "./pages/UserPage"
@@ -30,6 +31,8 @@ if (import.meta.env.DEV) {
     { path: "dev/curators", load: () => import("./pages/DevCuratorsPreview") },
     { path: "dev/me", load: () => import("./pages/DevMePreview") },
     { path: "dev/migrate", load: () => import("./pages/DevMigratePreview") },
+    { path: "dev/showcase", load: () => import("./pages/DevShowcasePreview") },
+    { path: "dev/suggestions", load: () => import("./pages/DevSuggestionsPreview") },
   ]
   for (const { path, load } of devPages) {
     const Page = lazy(load)
@@ -62,12 +65,12 @@ const router = createRouter([
       { index: true, element: <FeedPage /> },
       { path: "feed", element: <FeedPage /> },
       { path: "songs", element: <Navigate to="/" replace /> },
+      { path: "queue", element: <QueuePage /> },
       { path: "sealed", element: <SealedPage /> },
       { path: "seal", element: <Navigate to="/sealed" replace /> },
       { path: "submit", element: <SubmitPage /> },
       { path: "translate", element: <TranslatePage /> },
       { path: "settings", element: <SettingsPage /> },
-      { path: "queue", element: <QueuePage /> },
       { path: "curators", element: <CuratorsPage /> },
       { path: "search", element: <SearchPage /> },
       { path: "song/:videoId", element: <LyricsPage /> },
@@ -77,6 +80,7 @@ const router = createRouter([
       { path: "about", element: <AboutPage /> },
       { path: "downloads", element: <DownloadsPage /> },
       { path: "docs", element: <DocsPage /> },
+      { path: "showcase", element: <ShowcasePage /> },
       { path: "link", element: <LinkPage /> },
       { path: "migrate", element: <MigratePage /> },
       councilRoute,

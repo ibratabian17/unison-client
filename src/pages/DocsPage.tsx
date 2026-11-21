@@ -1,16 +1,31 @@
 import { CodeBlock, CodeLangProvider, type CodeTab, CodeTabs } from "@/components/CodeBlock"
 import { COMPOSER_URL } from "@/lib/composer"
 import type { ReactNode } from "react"
+import { Link } from "react-router-dom"
 
 const BASE_URL = "https://unison.betterlyrics.org"
 
-const VIDEO_URL = `${BASE_URL}/lyrics?v=dQw4w9WgXcQ`
-const SONG_ARTIST_URL = `${BASE_URL}/lyrics?song=Never+Gonna+Give+You+Up&artist=Rick+Astley`
-const ISRC_URL = `${BASE_URL}/lyrics?isrc=US2S70465012`
-const PROVIDER_ID_URL = `${BASE_URL}/lyrics?apple_music=1438556832`
-const SEARCH_URL = `${BASE_URL}/lyrics/search?q=never+gonna+give`
-const VARIANTS_URL = `${BASE_URL}/lyrics/variants/dQw4w9WgXcQ?limit=5`
-const TRANSLATE_URL = `${BASE_URL}/translate`
+const VIDEO_URL = `${BASE_URL}/lyrics?v=Ugr4KKK_SqY`
+const SONG_ARTIST_URL = `${BASE_URL}/lyrics?song=Explorer&artist=Justice`
+const ISRC_URL = `${BASE_URL}/lyrics?isrc=FR8EU2300090`
+const PROVIDER_ID_URL = `${BASE_URL}/lyrics?apple_music=1724935872`
+const SEARCH_URL = `${BASE_URL}/lyrics/search?q=explorer+justice`
+const VARIANTS_URL = `${BASE_URL}/lyrics/variants/Ugr4KKK_SqY?limit=5`
+
+const CACHE_CODE = `const saved = store.get(videoId) // { etag, data } from an earlier call
+const res = await fetch("${VIDEO_URL}", {
+  headers: saved ? { "If-None-Match": saved.etag } : {},
+})
+
+if (res.status === 304) {
+  render(saved.data.lyrics, saved.data.format)
+} else {
+  const { success, data } = await res.json()
+  if (success) {
+    store.set(videoId, { etag: res.headers.get("ETag"), data })
+    render(data.lyrics, data.format)
+  }
+}`
 
 // A GET in each language, generated from the URL so every reference section stays in lockstep.
 function fetchTabs(url: string): CodeTab[] {
@@ -59,7 +74,7 @@ if (success) {
     language: "python",
     code: `import requests
 
-res = requests.get("${BASE_URL}/lyrics", params={"v": "dQw4w9WgXcQ"})
+res = requests.get("${BASE_URL}/lyrics", params={"v": "Ugr4KKK_SqY"})
 body = res.json()
 
 if body["success"]:
@@ -94,82 +109,15 @@ println!("{body}");`,
   },
 ]
 
-// The translate endpoint is a POST, so its snippets send a body instead of a bare GET.
-const TRANSLATE_TABS: CodeTab[] = [
-  {
-    label: "cURL",
-    language: "bash",
-    code: `curl -X POST "${TRANSLATE_URL}" \\
-  -H "content-type: application/json" \\
-  -d '{"lines":["안녕하세요","반갑습니다"],"to":"en","from":"ko"}'`,
-  },
-  {
-    label: "JavaScript",
-    language: "javascript",
-    code: `const res = await fetch("${TRANSLATE_URL}", {
-  method: "POST",
-  headers: { "content-type": "application/json" },
-  body: JSON.stringify({ lines: ["안녕하세요", "반갑습니다"], to: "en", from: "ko" }),
-})
-const { lines, detectedLang } = await res.json()`,
-  },
-  {
-    label: "Python",
-    language: "python",
-    code: `import requests
-
-body = requests.post("${TRANSLATE_URL}", json={
-    "lines": ["안녕하세요", "반갑습니다"],
-    "to": "en",
-    "from": "ko",
-}).json()`,
-  },
-  {
-    label: "Go",
-    language: "go",
-    code: `payload := strings.NewReader(\`{"lines":["안녕하세요","반갑습니다"],"to":"en","from":"ko"}\`)
-res, err := http.Post("${TRANSLATE_URL}", "application/json", payload)
-if err != nil {
-    log.Fatal(err)
-}
-defer res.Body.Close()
-body, _ := io.ReadAll(res.Body)`,
-  },
-  {
-    label: "Rust",
-    language: "rust",
-    code: `// reqwest = { version = "0.12", features = ["blocking", "json"] }
-let body = reqwest::blocking::Client::new()
-    .post("${TRANSLATE_URL}")
-    .json(&serde_json::json!({
-        "lines": ["안녕하세요", "반갑습니다"],
-        "to": "en",
-        "from": "ko",
-    }))
-    .send()?
-    .text()?;`,
-  },
-]
-
-const TRANSLATE_RESPONSE = `{
-  "lines": [
-    { "translation": "Hello", "romanization": "annyeonghaseyo", "needsTranslation": true },
-    { "translation": "Nice to meet you", "romanization": "bangapseumnida", "needsTranslation": true }
-  ],
-  "detectedLang": "ko",
-  "provider": "google-lyrics-translate",
-  "cached": false
-}`
-
 const VIDEO_RESPONSE = `{
   "success": true,
   "data": {
-    "id": 4821,
-    "videoId": "dQw4w9WgXcQ",
-    "song": "Never Gonna Give You Up",
-    "artist": "Rick Astley",
-    "album": "Whenever You Need Somebody",
-    "duration": 213,
+    "id": 13529,
+    "videoId": "Ugr4KKK_SqY",
+    "song": "Explorer",
+    "artist": "Justice, Connan Mockasin",
+    "album": "Hyperdrama",
+    "isrc": "FR8EU2300090",
     "format": "ttml",
     "syncType": "richsync",
     "language": "en",
@@ -183,11 +131,11 @@ const VIDEO_RESPONSE = `{
 const PROVIDER_ID_RESPONSE = `{
   "success": true,
   "data": {
-    "id": 4821,
-    "videoId": "dQw4w9WgXcQ",
-    "song": "Never Gonna Give You Up",
-    "artist": "Rick Astley",
-    "isrc": "GBARL9300135",
+    "id": 13529,
+    "videoId": "Ugr4KKK_SqY",
+    "song": "Explorer",
+    "artist": "Justice, Connan Mockasin",
+    "isrc": "FR8EU2300090",
     "format": "ttml",
     "syncType": "richsync",
     "language": "en",
@@ -210,10 +158,10 @@ const SEARCH_RESPONSE = `{
   "success": true,
   "data": [
     {
-      "id": 4821,
-      "videoId": "dQw4w9WgXcQ",
-      "song": "Never Gonna Give You Up",
-      "artist": "Rick Astley",
+      "id": 13529,
+      "videoId": "Ugr4KKK_SqY",
+      "song": "Explorer",
+      "artist": "Justice, Connan Mockasin",
       "format": "ttml",
       "syncType": "richsync",
       "confidence": "high",
@@ -248,7 +196,7 @@ export function DocsPage() {
             Each entry is keyed on a <Code>videoId</Code>. Reading from it needs no key and no sign-in. The base URL is{" "}
             <Code>{BASE_URL}</Code>. Every <Code>/lyrics</Code> response is wrapped as{" "}
             <Code>{"{ success, data }"}</Code>, so check <Code>success</Code> before you touch <Code>data</Code>. Reads
-            are rate limited to 120 requests per minute per IP.
+            are rate limited to 600 requests per minute per IP.
           </p>
         </section>
 
@@ -262,12 +210,108 @@ export function DocsPage() {
         </section>
 
         <section className="space-y-3">
+          <h2 className="text-lg font-semibold text-unison-text">Who can use Unison</h2>
+          <p className="text-sm leading-relaxed text-unison-text-secondary">
+            You can use the Unison API and the database dump if you are:
+          </p>
+          <ul className="space-y-1.5 text-sm leading-relaxed text-unison-text-secondary">
+            <li>a person, for yourself or for a project you do not sell</li>
+            <li>a non-profit, school, library or public body</li>
+            <li>
+              an open-source project, even one with a paid tier, as long as the app's full source code is public under
+              an OSI-approved license and Unison lyrics are free to every user of the app
+            </li>
+          </ul>
+          <p className="text-sm leading-relaxed text-unison-text-secondary">
+            Companies and other businesses cannot use Unison, even if their product is free. This applies from{" "}
+            <strong className="text-unison-text">13 November 2026</strong>.
+          </p>
+          <p className="text-sm leading-relaxed text-unison-text-secondary">
+            Dumps published before 13 November 2026 stay under ODbL 1.0. The full terms are in the{" "}
+            <a
+              href="https://github.com/better-lyrics/unison/blob/master/LICENSE-DATA.md"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-unison-text transition-colors hover:text-unison-text-secondary"
+            >
+              Unison Community License
+            </a>
+            .
+          </p>
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-lg font-semibold text-unison-text">Attribution</h2>
+          <p className="text-sm leading-relaxed text-unison-text-secondary">
+            Any app that shows Unison lyrics must credit Unison and the person who submitted them. The credit can sit at
+            the end of the lyrics; it does not have to stay on screen. Apps integrating Unison have until{" "}
+            <strong className="text-unison-text">7 February 2027</strong> to add it.
+          </p>
+          <h3 className="text-sm font-semibold text-unison-text">If you use the API</h3>
+          <p className="text-sm leading-relaxed text-unison-text-secondary">
+            Show <Code>Lyrics from Unison</Code>, linked to{" "}
+            <Code>https://unison.betterlyrics.org/song/&lt;videoId&gt;</Code>, and the submitter's{" "}
+            <Code>submitter.displayName</Code>, linked to{" "}
+            <Code>https://unison.betterlyrics.org/curator/&lt;submitter.keyId&gt;</Code>. Every lyric response carries
+            both.
+          </p>
+          <p className="text-sm leading-relaxed text-unison-text-secondary">
+            After the deadline, apps that don't show the credit may lose access to the API. Apps that show it can join
+            the{" "}
+            <Link to="/showcase" className="text-unison-text transition-colors hover:text-unison-text-secondary">
+              showcase
+            </Link>
+            .
+          </p>
+          <h3 className="text-sm font-semibold text-unison-text">If you use the database dump</h3>
+          <p className="text-sm leading-relaxed text-unison-text-secondary">
+            The{" "}
+            <a
+              href="https://github.com/better-lyrics/unison#database-dump"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-unison-text transition-colors hover:text-unison-text-secondary"
+            >
+              dump
+            </a>{" "}
+            license requires the Unison credit. The submitter credit is our request rather than a license term. A
+            lyric's <Code>submitter_key_id</Code>, when set, matches a row in <Code>contributors</Code>, which has the
+            submitter's <Code>display_name</Code> and <Code>profile_url</Code>. The lyric's <Code>url</Code> column
+            links to its page on Unison.
+          </p>
+          <h3 className="text-sm font-semibold text-unison-text">Good examples</h3>
+          <ul className="space-y-1.5 text-sm leading-relaxed text-unison-text-secondary">
+            <li>
+              Under the last line: <strong className="text-unison-text">Lyrics from Unison · submitted by boidu</strong>
+              , with both parts linked.
+            </li>
+            <li>In an always visible spot next to the lyrics, or in a footer or credits row that opens with them.</li>
+          </ul>
+          <h3 className="text-sm font-semibold text-unison-text">Bad examples</h3>
+          <ul className="space-y-1.5 text-sm leading-relaxed text-unison-text-secondary">
+            <li>No credit at all.</li>
+            <li>"Unison" with no link.</li>
+            <li>Unison credited, but the submitter left out.</li>
+            <li>The credit only on an About or settings page.</li>
+            <li>Unison lyrics labelled as another provider's.</li>
+          </ul>
+          <h3 className="text-sm font-semibold text-unison-text">Why?</h3>
+          <p className="text-sm leading-relaxed text-unison-text-secondary">
+            Every lyric on Unison was submitted by someone in the community, for free. Seeing their name next to their
+            work is how they get thanked, and it helps bring in the next contributor. The link matters as much as the
+            name: a listener who spots a wrong line follows it to the song page to vote, report or submit a fix, so the
+            lyrics in your app get better over time.
+          </p>
+        </section>
+
+        <section className="space-y-3">
           <h2 className="text-lg font-semibold text-unison-text">Fetch by video</h2>
           <p className="text-sm leading-relaxed text-unison-text-secondary">
             <Code>GET /lyrics?v=&lt;videoId&gt;</Code> returns the single best version for that video. The fields you
             need to render are <Code>lyrics</Code>, <Code>format</Code>, and <Code>syncType</Code>;{" "}
             <Code>confidence</Code> tells you how much the community has vetted it. A miss returns <Code>404</Code>.
           </p>
+          <CodeTabs tabs={fetchTabs(VIDEO_URL)} />
           <CodeBlock code={VIDEO_RESPONSE} language="json" label="JSON response" />
         </section>
 
@@ -339,30 +383,18 @@ export function DocsPage() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-lg font-semibold text-unison-text">Translating lyrics</h2>
+          <h2 className="text-lg font-semibold text-unison-text">Caching</h2>
           <p className="text-sm leading-relaxed text-unison-text-secondary">
-            <Code>POST /translate</Code> turns a block of lyrics into another language and romanizes it in one call, so
-            every client isn't hitting Google's rate-limited endpoint on its own. Send the <Code>lines</Code> you want,
-            the target language in <Code>to</Code>, and the source language in <Code>from</Code>. Leave{" "}
-            <Code>from</Code> out and Unison detects it, then echoes what it picked back as <Code>detectedLang</Code>.
+            Keep the lyrics you fetch and check them before you download them again. A check is cheaper than a full
+            download for both Unison and your app, and your copy stays in sync with edits and new versions. Every{" "}
+            <Code>GET /lyrics</Code> lookup sends an <Code>ETag</Code>. Save it with the lyric and send it back as{" "}
+            <Code>If-None-Match</Code>. If the lyric is the same, you get <Code>304</Code> with no body and use the copy
+            you have.
           </p>
-          <CodeTabs tabs={TRANSLATE_TABS} />
+          <CodeBlock code={CACHE_CODE} language="javascript" label="JavaScript" />
           <p className="text-sm leading-relaxed text-unison-text-secondary">
-            Each line comes back with a <Code>translation</Code>, a <Code>romanization</Code> when the source isn't
-            already in the Latin alphabet, and a <Code>needsTranslation</Code> flag so you can leave lines that were
-            already in the target language alone. Answers are cached per lyrics-and-language pair, so the same request
-            only reaches Google once; a cache hit sets <Code>cached</Code> to <Code>true</Code>. Blank lines and lone ♪
-            markers keep their place and come back empty.
-          </p>
-          <CodeBlock code={TRANSLATE_RESPONSE} language="json" label="JSON response" />
-          <p className="text-sm leading-relaxed text-unison-text-secondary">
-            When <Code>from</Code> and <Code>to</Code> are the same language there's nothing to do, so every line comes
-            back with a null <Code>translation</Code> and <Code>needsTranslation</Code> false instead of a copy of the
-            original. A request with no real lyric lines, or one where the source language can't be worked out, returns{" "}
-            <Code>400</Code>; more than 200 lines or an overlong line or language code returns <Code>422</Code>; if
-            Google is unreachable or rate limited you get <Code>502</Code> or <Code>503</Code>. A transient failure
-            isn't cached, but the same lines failing to parse three times over is remembered as a negative and
-            short-circuits to <Code>502</Code> for about a month so the upstream isn't hammered.
+            The tag changes when someone edits the lyric or its song details, when the submitter or an editor changes
+            their name, or when another version moves to the top. Votes and confidence can change under the same tag.
           </p>
         </section>
 
@@ -375,7 +407,7 @@ export function DocsPage() {
           <ul className="space-y-1.5 text-sm leading-relaxed text-unison-text-secondary">
             <li>
               <Code>ttml</Code> is timed XML, the richest format. Pair it with <Code>syncType</Code>{" "}
-              <Code>richsync</Code> for word-by-word timing or <Code>linesync</Code> for per-line timing.
+              <Code>richsync</Code> for syllable-level timing or <Code>linesync</Code> for per-line timing.
             </li>
             <li>
               <Code>lrc</Code> is timestamped lines, the classic karaoke format.
@@ -392,9 +424,31 @@ export function DocsPage() {
             Failed <Code>/lyrics</Code> calls keep the envelope with <Code>success: false</Code> plus a{" "}
             <Code>code</Code> and a human-readable <Code>error</Code> and <Code>hint</Code>. Common ones are{" "}
             <Code>404</Code> when nothing matches and <Code>400</Code> when the query is missing a required param. Stay
-            under 120 requests per minute per IP or you get <Code>429</Code>.
+            under 600 requests per minute per IP or you get <Code>429</Code>.
           </p>
           <CodeBlock code={ERROR_RESPONSE} language="json" label="JSON response" />
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-lg font-semibold text-unison-text">Lyrics and takedowns</h2>
+          <p className="text-sm leading-relaxed text-unison-text-secondary">
+            Unison does not own any lyrics. Songwriters and publishers own them. Community members submit them, and each
+            submitter is responsible for what they post.
+          </p>
+          <p className="text-sm leading-relaxed text-unison-text-secondary">
+            If you hold the rights to a song and want its lyrics removed, email{" "}
+            <a
+              href="mailto:unison-takedown@boidu.dev"
+              className="text-unison-text transition-colors hover:text-unison-text-secondary"
+            >
+              unison-takedown@boidu.dev
+            </a>
+            . Include a link to the lyrics on Unison and proof that you hold the rights. We remove the lyrics once we
+            confirm both, and we may turn down requests that leave either out.
+          </p>
+          <p className="text-sm leading-relaxed text-unison-text-secondary">
+            Unison, its API and its dumps come as is, with no warranty. We are not liable for how anyone uses them.
+          </p>
         </section>
 
         <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-unison-border pt-6 text-xs text-unison-text-muted">

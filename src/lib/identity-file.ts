@@ -1,10 +1,9 @@
 import type { SignedBody } from "./auth"
 import { canonicalJson } from "./canonical-json"
-import { saveActiveBrowserIdentity } from "./browser-identity"
 
 export const IDENTITY_FILE_ERRORS = {
-  notIdentity: "This file is not a valid Better Lyrics identity export.",
-  damaged: "This identity file is damaged or the public/private key pair does not match.",
+  notIdentity: "This file is not a Better Lyrics identity export.",
+  damaged: "This identity file is damaged. Export it again from Better Lyrics.",
 } as const
 
 const ECDSA_P256 = { name: "ECDSA", namedCurve: "P-256" } as const
@@ -22,22 +21,18 @@ function isP256Jwk(value: unknown): value is JsonWebKey {
   return jwk.kty === "EC" && jwk.crv === "P-256" && typeof jwk.x === "string" && typeof jwk.y === "string"
 }
 
-export function parseIdentityExport(text: string): IdentityExport {
+function parseIdentityExport(text: string): IdentityExport {
   let parsed: unknown
   try {
     parsed = JSON.parse(text)
   } catch {
     throw new Error(IDENTITY_FILE_ERRORS.notIdentity)
   }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error(IDENTITY_FILE_ERRORS.notIdentity)
-  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(IDENTITY_FILE_ERRORS.notIdentity)
   const file = parsed as Record<string, unknown>
-  const publicKey = (file.publicKey ?? file.publicKeyJwk) as JsonWebKey | undefined
-  const privateKey = (file.privateKey ?? file.privateKeyJwk) as JsonWebKey | undefined
-  const keyId = file.keyId
-
+  const { publicKey, privateKey, keyId } = file
   if (
+    file.version !== 1 ||
     typeof keyId !== "string" ||
     keyId.length !== 64 ||
     !isP256Jwk(publicKey) ||
@@ -75,7 +70,6 @@ async function importSigningKey(identity: IdentityExport): Promise<CryptoKey> {
 
 export async function signInWithIdentityFile(file: File, nonce: string): Promise<SignedBody> {
   const identity = parseIdentityExport(await file.text())
-  saveActiveBrowserIdentity(identity)
   const key = await importSigningKey(identity)
   const payload = { origin: window.location.origin, timestamp: Date.now(), nonce, keyId: identity.keyId }
   const signature = await crypto.subtle.sign(ECDSA_SHA256, key, new TextEncoder().encode(canonicalJson(payload)))

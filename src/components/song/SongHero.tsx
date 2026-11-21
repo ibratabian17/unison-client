@@ -1,18 +1,19 @@
+import { resolveAssetUrl } from "@/lib/badge-view"
 import { CoverImage } from "@/components/AlbumArt"
 import { SwapLabel } from "@/components/SwapLabel"
 import { SyncTag } from "@/components/SyncTag"
 import { Tooltip } from "@/components/Tooltip"
 import { VoteControls } from "@/components/VoteControls"
-import { BoostLyricButton } from "@/components/council/BoostLyricButton"
 import { EditMetadataButton } from "@/components/council/EditMetadataButton"
 import { SealLyricButton } from "@/components/council/SealLyricButton"
 import { IconSwap } from "@/components/icons/IconSwap"
 import { PlayPauseIcon } from "@/components/icons/PlaybackIcons"
 import { YouTubeMusicIcon } from "@/components/icons/YouTubeMusicIcon"
 import { Bone } from "@/components/skeleton"
-import { chipClass, chipIconClass, glassClass, raisedChipClass } from "@/components/ui"
+import { SuggestEditButton, SuggestionWaitingLine } from "@/components/song/SuggestEditButton"
+import { artClippedTextShadowClass, chipClass, chipIconClass, glassClass, raisedChipClass } from "@/components/ui"
 import { useCopied } from "@/hooks/useCopied"
-import { resolveAssetUrl } from "@/lib/badge-view"
+import type { ArtworkCover } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { titleCase } from "@/lib/format"
 import { languageName } from "@/lib/language"
@@ -20,12 +21,12 @@ import { LAYOUT_TRANSITION } from "@/lib/motion-variants"
 import { type SyncKind, syncTypeFor } from "@/lib/sync-type"
 import type { Mark, VariantFull } from "@/lib/types"
 import { youTubeMusicUrl } from "@/lib/youtube-music"
-import { IconCheck, IconShare, IconTrash } from "@tabler/icons-react"
-import { motion } from "motion/react"
+import { IconAdjustmentsHorizontal, IconCheck, IconShare, IconTrash } from "@tabler/icons-react"
 import { useEffect, useState } from "react"
+import { motion } from "motion/react"
 
 const SYNC_TIP: Record<SyncKind, string> = {
-  syllable: "Syllable synced: each syllable highlights as it is sung.",
+  syllable: "Richsynced: each syllable or word highlights as it is sung.",
   word: "Word synced: each word highlights as it is sung.",
   line: "Line synced: each line highlights as it is sung.",
   unsynced: "Plain text with no timing.",
@@ -74,13 +75,14 @@ export interface HeroPlayer {
 interface SongHeroProps {
   variant: VariantFull
   versions: number
-  art: string | null | undefined
+  art: ArtworkCover | null | undefined
   player: HeroPlayer
+  lyricsTools: { open: boolean; onToggle: () => void }
   onDelete?: () => void
   deleting?: boolean
 }
 
-function Cover({ variant, art, player }: Omit<SongHeroProps, "versions">) {
+function Cover({ variant, art, player }: Pick<SongHeroProps, "variant" | "art" | "player">) {
   const label = player.playing ? "Pause" : "Play"
   const covered = !(player.active && (player.playing || player.failed))
   return (
@@ -97,7 +99,7 @@ function Cover({ variant, art, player }: Omit<SongHeroProps, "versions">) {
           !covered && "pointer-events-none opacity-0 blur-(--reveal-blur)",
         )}
       >
-        <CoverImage src={art} song={variant.song} artist={variant.artist} />
+        <CoverImage src={art?.url} fallbackSrc={art?.fallbackUrl} song={variant.song} artist={variant.artist} />
       </div>
       {player.active ? (
         <div className="pointer-events-none absolute inset-0 grid place-items-center">
@@ -168,46 +170,32 @@ function ShareButton({ videoId }: { videoId: string }) {
   )
 }
 
-function DeleteChip({ onDelete, deleting }: { onDelete: () => void; deleting?: boolean }) {
-  const [confirming, setConfirming] = useState(false)
-
-  useEffect(() => {
-    if (!confirming) return
-    const timer = window.setTimeout(() => setConfirming(false), 4000)
-    return () => window.clearTimeout(timer)
-  }, [confirming])
-
+function LyricsToolsButton({ open, onToggle }: SongHeroProps["lyricsTools"]) {
   return (
-    <button
-      type="button"
-      disabled={deleting}
-      onClick={() => {
-        if (!confirming) {
-          setConfirming(true)
-          return
-        }
-        setConfirming(false)
-        onDelete()
-      }}
-      className={cn(
-        chipClass,
-        confirming && "bg-red-500/20 text-[#fca5a5] hover:bg-red-500/28 hover:text-[#fca5a5]",
-      )}
-    >
-      <IconTrash className={chipIconClass} stroke={1.75} />
-      <span>{deleting ? "Deleting…" : confirming ? "Confirm delete" : "Delete"}</span>
-    </button>
+    <Tooltip label={open ? "Hide lyrics tools" : "Show lyrics tools"}>
+      <button
+        type="button"
+        aria-label="Lyrics tools"
+        aria-pressed={open}
+        onClick={onToggle}
+        className={cn(
+          chipClass,
+          "w-[30px] justify-center px-0 aria-pressed:bg-white/[0.14] aria-pressed:text-unison-text",
+        )}
+      >
+        <IconAdjustmentsHorizontal className={chipIconClass} stroke={1.75} />
+      </button>
+    </Tooltip>
   )
 }
 
-export function SongHero({
-  variant,
-  versions,
-  art,
-  player,
-  onDelete,
-  deleting,
-}: SongHeroProps) {
+export function SongHero({ variant, versions, art, player, lyricsTools, onDelete, deleting = false }: SongHeroProps) {
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  useEffect(() => {
+    if (!confirmDelete) return
+    const timer = window.setTimeout(() => setConfirmDelete(false), 4000)
+    return () => window.clearTimeout(timer)
+  }, [confirmDelete])
   const sync = syncTypeFor(variant.syncType, variant.format)
   const seal = variant.marks?.find((mark) => mark.type === "seal")
   return (
@@ -218,8 +206,12 @@ export function SongHero({
       <div className="min-w-0 max-sm:contents">
         <div className={cn(TITLE_SIZE[titleSize(variant.song)], "max-sm:self-end")}>
           <h1
+            tabIndex={-1}
             title={variant.song}
-            className="-mx-[0.14em] -my-[0.12em] line-clamp-2 px-[0.14em] py-[0.12em] font-black leading-[1.08] tracking-[-0.035em] text-balance [text-box:trim-start_cap_alphabetic]"
+            className={cn(
+              "-mr-[0.08em] -mb-[0.08em] line-clamp-2 pr-[0.08em] pb-[0.08em] font-black leading-[1.08] tracking-[-0.035em] text-balance [text-box:trim-start_cap_alphabetic]",
+              artClippedTextShadowClass,
+            )}
           >
             {variant.song}
             {seal ? <SealStamp seal={seal} /> : null}
@@ -227,7 +219,10 @@ export function SongHero({
         </div>
         <p
           title={variant.album ? `${variant.artist} · ${variant.album}` : variant.artist}
-          className="mt-1.5 -mb-[0.16em] flex min-w-0 whitespace-nowrap pr-[0.08em] pb-[0.16em] text-[17px] font-medium max-[1000px]:text-[15px] max-sm:self-start"
+          className={cn(
+            "mt-1.5 -mb-[0.16em] flex min-w-0 whitespace-nowrap max-sm:self-start pr-[0.08em] pb-[0.16em] text-[17px] font-medium max-[1000px]:text-[15px]",
+            artClippedTextShadowClass,
+          )}
         >
           <span className="max-w-full shrink-0 truncate text-(--ink-2)">{variant.artist}</span>
           {variant.album ? <span className="min-w-[3ch] truncate text-(--ink-3)">{` · ${variant.album}`}</span> : null}
@@ -255,10 +250,7 @@ export function SongHero({
             onClick={player.onToggle}
             transition={{ layout: LAYOUT_TRANSITION }}
             style={{ borderRadius: 10 }}
-            className={cn(
-              raisedChipClass,
-              "shadow-[inset_0_1px_0_#fff,inset_0_-1px_0_rgba(18,17,22,0.14)]",
-            )}
+            className={cn(raisedChipClass, "shadow-[inset_0_1px_0_#fff,inset_0_-1px_0_rgba(18,17,22,0.14)]")}
           >
             <motion.span layout className="inline-flex">
               <PlayPauseIcon playing={player.playing} className={chipIconClass} />
@@ -280,6 +272,33 @@ export function SongHero({
             variant={{ score: variant.score, userVote: variant.userVote ?? null }}
             beforeReport={<ShareButton videoId={variant.videoId} />}
           />
+          <LyricsToolsButton {...lyricsTools} />
+          <SuggestEditButton variant={variant} />
+          {onDelete ? (
+            <Tooltip label={confirmDelete ? "Click again to confirm deletion" : "Delete your lyric submission"}>
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => {
+                  if (!confirmDelete) {
+                    setConfirmDelete(true)
+                    return
+                  }
+                  setConfirmDelete(false)
+                  onDelete()
+                }}
+                className={cn(
+                  chipClass,
+                  confirmDelete
+                    ? "bg-red-500/25 text-red-200 hover:bg-red-500/35"
+                    : "text-red-300/90 hover:bg-red-500/15 hover:text-red-200",
+                )}
+              >
+                <IconTrash className={chipIconClass} stroke={1.75} />
+                <span>{deleting ? "Deleting…" : confirmDelete ? "Confirm delete" : "Delete"}</span>
+              </button>
+            </Tooltip>
+          ) : null}
           <div className="flex items-center gap-2 before:mr-1 before:h-5 before:w-px before:bg-white/[0.14] empty:hidden">
             <EditMetadataButton
               videoId={variant.videoId}
@@ -287,10 +306,9 @@ export function SongHero({
               current={{ song: variant.song, artist: variant.artist, album: variant.album ?? null }}
             />
             <SealLyricButton videoId={variant.videoId} lyricsId={variant.id} />
-            <BoostLyricButton lyricsId={variant.id} />
-            {onDelete ? <DeleteChip onDelete={onDelete} deleting={deleting} /> : null}
           </div>
         </div>
+        <SuggestionWaitingLine variant={variant} />
         {variant.hidden ? (
           <p className="mt-4 text-[13px] font-medium text-unison-warn max-sm:col-span-2">
             This variant has been auto-hidden by community downvotes.
@@ -301,17 +319,22 @@ export function SongHero({
   )
 }
 
-export function SongHeroSkeleton() {
+export function SongHeroSkeleton({ title }: { title?: string }) {
   return (
     <section data-testid="song-hero-skeleton" className={HERO_GRID}>
       <div className={HERO_ART}>
         <Bone className="aspect-square w-full rounded-2xl" />
       </div>
       <div className="min-w-0 max-sm:contents">
-        <div className={cn(TITLE_SIZE.l, "flex h-[0.98em] items-center max-sm:self-end")}>
+        <div
+          className={cn(
+            TITLE_SIZE[title ? titleSize(title) : "l"],
+            "-mb-[0.08em] flex h-[0.98em] items-center max-sm:self-end",
+          )}
+        >
           <Bone className="h-[0.72em] w-1/2 rounded-lg" />
         </div>
-        <div className="mt-1.5 flex h-[26px] items-center max-[1000px]:h-[23px] max-sm:self-start">
+        <div className="mt-1.5 -mb-[0.16em] flex h-[28px] items-center text-[17px] max-[1000px]:h-[25px] max-[1000px]:text-[15px] max-sm:self-start">
           <Bone className="h-3.5 w-1/4" />
         </div>
         <div className="mt-3 flex gap-2 max-sm:col-span-2 max-sm:mt-4">
@@ -323,6 +346,7 @@ export function SongHeroSkeleton() {
           <Bone className="h-[30px] w-[69px] rounded-[10px]" />
           <Bone className="h-[30px] w-[131px] rounded-[10px] max-sm:w-[30px]" />
           <Bone className="h-[30px] w-[86px] rounded-[10px]" />
+          <Bone className="size-[30px] rounded-[10px]" />
           <Bone className="size-[30px] rounded-[10px]" />
           <Bone className="size-[30px] rounded-[10px]" />
         </div>

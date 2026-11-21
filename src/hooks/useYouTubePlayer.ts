@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react"
 
 interface YTPlayer {
   getCurrentTime(): number
-  getDuration(): number
   getPlayerState(): number
   seekTo(seconds: number, allowSeekAhead: boolean): void
   playVideo(): void
@@ -90,7 +89,6 @@ export function __resetForTests(): void {
 export interface UseYouTubePlayerResult {
   ref: (node: HTMLDivElement | null) => void
   getCurrentTime: () => number
-  getDuration: () => number
   getPlaying: () => boolean
   playing: boolean
   ready: boolean
@@ -102,7 +100,6 @@ export interface UseYouTubePlayerResult {
 
 export interface UseYouTubePlayerOptions {
   playerVars?: Record<string, string | number>
-  onDurationChange?: (dur: number) => void
 }
 
 export function useYouTubePlayer(videoId: string | null, options?: UseYouTubePlayerOptions): UseYouTubePlayerResult {
@@ -123,8 +120,6 @@ export function useYouTubePlayer(videoId: string | null, options?: UseYouTubePla
   // pass a fresh options object each render without forcing a rebuild.
   const playerVarsRef = useRef(options?.playerVars)
   playerVarsRef.current = options?.playerVars
-  const onDurationChangeRef = useRef(options?.onDurationChange)
-  onDurationChangeRef.current = options?.onDurationChange
 
   useEffect(() => {
     if (!videoId || !node) return
@@ -147,8 +142,6 @@ export function useYouTubePlayer(videoId: string | null, options?: UseYouTubePla
             if (cancelled) return
             setReady(true)
             readyRef.current = true
-            const dur = player.getDuration?.() ?? 0
-            if (dur > 0) onDurationChangeRef.current?.(dur)
             if (pendingSeekRef.current !== null) {
               player.seekTo(pendingSeekRef.current, true)
               pendingSeekRef.current = null
@@ -159,13 +152,7 @@ export function useYouTubePlayer(videoId: string | null, options?: UseYouTubePla
             }
           },
           onStateChange: ({ data }) => {
-            if (!cancelled && data !== YT_STATE_BUFFERING) {
-              setPlaying(data === YT_STATE_PLAYING)
-              if (data === YT_STATE_PLAYING) {
-                const dur = player.getDuration?.() ?? 0
-                if (dur > 0) onDurationChangeRef.current?.(dur)
-              }
-            }
+            if (!cancelled && data !== YT_STATE_BUFFERING) setPlaying(data === YT_STATE_PLAYING)
           },
           onError: () => {
             if (!cancelled) setFailed(true)
@@ -217,12 +204,6 @@ export function useYouTubePlayer(videoId: string | null, options?: UseYouTubePla
     player.pauseVideo()
   }, [])
 
-  const getDuration = useCallback(() => {
-    const player = playerRef.current
-    if (!player || !readyRef.current) return 0
-    return player.getDuration?.() ?? 0
-  }, [])
-
   const getCurrentTime = useCallback(() => {
     const player = playerRef.current
     if (!player || !readyRef.current) return 0
@@ -235,5 +216,5 @@ export function useYouTubePlayer(videoId: string | null, options?: UseYouTubePla
     return player.getPlayerState() === YT_STATE_PLAYING
   }, [])
 
-  return { ref: setNode, getCurrentTime, getDuration, getPlaying, playing, ready, failed, seekTo, play, pause }
+  return { ref: setNode, getCurrentTime, getPlaying, playing, ready, failed, seekTo, play, pause }
 }

@@ -1,30 +1,14 @@
+import { resolveApiPath } from "./api-url"
 import type { BadgeCatalogue, BadgeDef, BadgeImage } from "./types"
 
 const IMAGE_VARIANTS: (keyof BadgeImage)[] = ["color", "mono", "silhouette"]
-
-function getAssetBase(): string {
-  const rawBase = import.meta.env.BASE_URL || "/"
-  if (rawBase === "./" && typeof window !== "undefined" && !window.location.hostname.endsWith(".github.io")) {
-    return "/"
-  }
-  return rawBase.endsWith("/") ? rawBase : `${rawBase}/`
-}
 
 export function resolveAssetUrl(url: string | undefined): string {
   if (!url) return ""
   if (url.startsWith("http://") || url.startsWith("https://") || url.startsWith("data:") || url.startsWith("blob:")) {
     return url
   }
-  if (url.startsWith("/badge-art/")) {
-    return `${getAssetBase()}${url.slice(1)}`
-  }
-  if (url.startsWith("/badges/") || url.startsWith("/avatars/") || url.startsWith("/artwork")) {
-    return `https://unison.betterlyrics.org${url}`
-  }
-  if (url.startsWith("/")) {
-    return `${getAssetBase()}${url.slice(1)}`
-  }
-  return url
+  return resolveApiPath(url)
 }
 
 export function collectBadgeAssetUrls(

@@ -1,18 +1,19 @@
 import { resolveAssetUrl } from "@/lib/badge-view"
-import { useInfiniteQuery } from "@tanstack/react-query"
-import { MotionConfig, motion } from "motion/react"
-import { useMemo, useRef } from "react"
-import { useSearchParams } from "react-router-dom"
+import { CouncilSeal } from "@/components/CouncilSeal"
 import { EmptyState } from "@/components/EmptyState"
 import { SealedTile, SealedTileSkeleton } from "@/components/SealedTile"
 import { Segmented } from "@/components/council/Segmented"
 import { Bone, skeletonKeys } from "@/components/skeleton"
-import { buttonClass } from "@/components/ui"
+import { buttonClass, heroPanelClass } from "@/components/ui"
 import { fetchSealed } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { EASE_OUT, thudFrom, thudTransition } from "@/lib/motion-variants"
 import type { SealedSort, SealedSyncFilter } from "@/lib/types"
 import { uniqueById } from "@/lib/unique-by-id"
+import { useInfiniteQuery } from "@tanstack/react-query"
+import { MotionConfig, motion } from "motion/react"
+import { useMemo, useRef } from "react"
+import { useSearchParams } from "react-router-dom"
 
 const PAGE_LIMIT = 24
 const SUBMIT_TUTORIAL_URL = "https://www.youtube.com/watch?v=to138zXZ0nc"
@@ -28,7 +29,7 @@ type SyncChoice = SealedSyncFilter | "all"
 
 const SYNC_OPTIONS: { value: SyncChoice; label: string }[] = [
   { value: "all", label: "All" },
-  { value: "richsync", label: "Syllable or word" },
+  { value: "richsync", label: "Richsync or word" },
   { value: "linesync", label: "Line" },
 ]
 
@@ -83,18 +84,15 @@ export function SealedPage() {
   return (
     <MotionConfig reducedMotion="user">
       <div className="space-y-6">
-        <section
-          className="flex flex-col gap-5 rounded-xl p-6 sm:flex-row sm:items-center"
-          style={{ background: "linear-gradient(135deg, rgba(217,217,217,0.1), rgba(255,255,255,0.02) 55%)" }}
-        >
-          <motion.img
-            src={resolveAssetUrl("/badges/committee/image.svg")}
-            alt=""
-            className="size-16 shrink-0"
+        <section className={heroPanelClass}>
+          <motion.span
+            className="block size-16 shrink-0"
             style={{ rotate: -6 }}
             {...heroSeal}
             transition={thudTransition(HERO_SEAL_AT)}
-          />
+          >
+            <CouncilSeal className="block size-full" />
+          </motion.span>
           <motion.div
             className="min-w-0 flex-1"
             initial={{ opacity: 0, x: -8, filter: "blur(6px)" }}

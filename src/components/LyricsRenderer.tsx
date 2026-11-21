@@ -1,16 +1,15 @@
 import "@braccato/core/element"
 import braccatoTheme from "@/components/braccato-theme.css?raw"
+import braccatoPhoneTheme from "@/components/braccato-theme-phone.css?raw"
 import { Bone } from "@/components/skeleton"
 import { cn } from "@/lib/cn"
+import { isPhone } from "@/lib/phone"
 import { pickTranslationLanguage, translationLanguages } from "@/lib/lyric-translations"
 import type { LyricsFormat, VariantFull } from "@/lib/types"
 import { injectRomanization, injectTranslation } from "@braccato/core"
 import type { BraccatoLyricsElement, LineClickDetail } from "@braccato/core/element"
 import { LRCParser, type Lyric, type LyricParser, PlainParser, TTMLParser } from "@braccato/parsers"
 import { useEffect, useMemo, useRef } from "react"
-
-const PHONE_MEDIA = "(hover: none) and (width < 640px)"
-const phoneTheme = braccatoTheme.replace("blyrics-letter-wave = true;", "blyrics-letter-wave = false;")
 
 interface LyricsRendererProps {
   variant: VariantFull
@@ -21,6 +20,8 @@ interface LyricsRendererProps {
   onAutoscrollPause?: (resume: (() => void) | null) => void
   className?: string
 }
+
+const PHONE_THEME = `${braccatoTheme}\n${braccatoPhoneTheme}`
 
 const PARSER_BY_FORMAT: Record<LyricsFormat, LyricParser> = {
   ttml: TTMLParser,
@@ -78,16 +79,8 @@ export function LyricsRenderer({
       setResumeAffordanceVisible: (visible) => onAutoscrollPauseRef.current?.(visible ? resume : null),
     }
     el.tickOptions = { countEveryUserScroll: true }
-    const mql = typeof window.matchMedia === "function" ? window.matchMedia(PHONE_MEDIA) : null
-    const applyTheme = () => {
-      el.theme = mql?.matches ? phoneTheme : braccatoTheme
-    }
-    applyTheme()
-    mql?.addEventListener?.("change", applyTheme)
-    return () => {
-      mql?.removeEventListener?.("change", applyTheme)
-      onAutoscrollPauseRef.current?.(null)
-    }
+    el.theme = isPhone() ? PHONE_THEME : braccatoTheme
+    return () => onAutoscrollPauseRef.current?.(null)
   }, [])
 
   const lang = useMemo(

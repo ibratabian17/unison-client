@@ -92,6 +92,10 @@ export default defineConfig(() => ({
         target: "https://unison.betterlyrics.org",
         changeOrigin: true,
       },
+      "/notifications": {
+        target: "https://unison.betterlyrics.org",
+        changeOrigin: true,
+      },
       "/auth": {
         target: "https://unison.betterlyrics.org",
         changeOrigin: true,

@@ -1,7 +1,8 @@
+import { useUiMode } from "@/context/UiModeContext"
 import { createContext, type FocusEvent, type PointerEvent, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { useLocation } from "react-router-dom"
-import { useUiMode } from "@/context/UiModeContext"
 import { useArtPalette } from "@/hooks/useArtPalette"
+import type { Accent } from "@/lib/accent"
 import { songBackdrop, useArtwork } from "@/lib/artwork"
 import { ArtBackground } from "./ArtBackground"
 
@@ -52,9 +53,9 @@ export function PageArtProvider({ children }: { children: ReactNode }) {
   const { pathname } = useLocation()
   const fallback = useMemo(defaultArt, [])
   const src = art?.src ?? fallback
-  const [onScreen, setOnScreen] = useState<string | null>(null)
-  const paletteSrc = active ? (onScreen ?? src) : null
-  useArtPalette(paletteSrc, paletteSrc === fallback ? DEFAULT_SCRIM_FLOOR : 0)
+  const [onScreen, setOnScreen] = useState<{ src: string; accent: Accent | null } | null>(null)
+  const showArt = useCallback((shown: string, accent: Accent | null) => setOnScreen({ src: shown, accent }), [])
+  useArtPalette(onScreen?.accent ?? null, !onScreen || onScreen.src === fallback ? DEFAULT_SCRIM_FLOOR : 0)
 
   const previewSrc = preview?.pathname === pathname ? preview.src : null
 
@@ -72,7 +73,7 @@ export function PageArtProvider({ children }: { children: ReactNode }) {
   return (
     <SetPageArt value={setArt}>
       <PreviewPageArt value={previewArt}>
-        {active ? <ArtBackground src={previewSrc ?? src} moving={art?.moving ?? false} onShow={setOnScreen} /> : null}
+        <ArtBackground src={previewSrc ?? src} moving={art?.moving ?? false} onShow={showArt} />
         {children}
       </PreviewPageArt>
     </SetPageArt>
@@ -89,17 +90,16 @@ export function usePageArt(src: string | null | undefined, moving = false) {
 
 export function useSongArtPreview({ videoId, song, artist }: { videoId: string; song: string; artist: string }) {
   const { uiMode, hoverPreviewEnabled } = useUiMode()
+  const enabled = uiMode === "new" && hoverPreviewEnabled
   const previewArt = useContext(PreviewPageArt)
   const { data: cover } = useArtwork(videoId)
   const active = useRef(false)
-  const enabled = uiMode === "new" && hoverPreviewEnabled
   const show = () => {
     if (!enabled) return
     active.current = true
     previewArt(songBackdrop(videoId, Boolean(cover), song, artist))
   }
   const hide = () => {
-    if (!active.current) return
     active.current = false
     previewArt(null)
   }

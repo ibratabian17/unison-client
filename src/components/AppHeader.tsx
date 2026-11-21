@@ -1,17 +1,19 @@
-import { IconMenu2, IconSettings, IconX } from "@tabler/icons-react"
-import { motion } from "motion/react"
-import { useEffect, useRef, useState } from "react"
-import { Link, NavLink, useLocation } from "react-router-dom"
+import { useSession } from "@/auth/useSession"
 import { useUiMode } from "@/context/UiModeContext"
 import { usePresence } from "@/hooks/usePresence"
 import { cn } from "@/lib/cn"
 import { LAYOUT_TRANSITION } from "@/lib/motion-variants"
 import { type PageWidth, pageWidthClass } from "@/lib/page-width"
+import { IconMenu2, IconSettings, IconX } from "@tabler/icons-react"
+import { motion } from "motion/react"
+import { useEffect, useRef, useState } from "react"
+import { Link, NavLink, useLocation } from "react-router-dom"
 import { BetterLyricsLogo } from "./BetterLyricsLogo"
-import { CouncilNavLink } from "./council/CouncilNavLink"
-import { IconSwap } from "./icons/IconSwap"
 import { SearchBar } from "./SearchBar"
 import { SignInControl } from "./SignInControl"
+import { CouncilNavLink } from "./council/CouncilNavLink"
+import { IconSwap } from "./icons/IconSwap"
+import { NotificationBell } from "./notifications/NotificationBell"
 import { artTextShadowClass, glassClass, popoverSurfaceClass } from "./ui"
 
 const newMobileTabClass = ({ isActive }: { isActive: boolean }) =>
@@ -77,6 +79,7 @@ function NavTab({
 export function AppHeader({ width = "default" }: { width?: PageWidth }) {
   const { uiMode, setSettingsOpen } = useUiMode()
   const isNew = uiMode === "new"
+  const signedIn = useSession().status === "signed-in"
   const { pathname } = useLocation()
   const isFeedActive = pathname === "/" || pathname === "/feed" || pathname === "/songs"
   const [menuOpen, setMenuOpen] = useState(false)
@@ -108,7 +111,7 @@ export function AppHeader({ width = "default" }: { width?: PageWidth }) {
       >
         <div
           className={cn(
-            "mx-auto flex items-center justify-between gap-4 py-4 lg:grid lg:grid-cols-[auto_auto_1fr_auto] lg:gap-6",
+            "mx-auto flex items-center justify-between gap-4 py-4 lg:grid lg:grid-cols-[auto_auto_minmax(0,1fr)_auto] lg:gap-6",
             width === "wide" ? pageWidthClass("wide") : "max-w-5xl px-6",
           )}
         >
@@ -128,6 +131,9 @@ export function AppHeader({ width = "default" }: { width?: PageWidth }) {
               Leaderboard
             </NavLink>
             <CouncilNavLink className={classicTabClass} />
+            <NavLink to="/showcase" className={classicTabClass}>
+              Showcase
+            </NavLink>
             <NavLink to="/translate" className={classicTabClass}>
               Translate
             </NavLink>
@@ -145,6 +151,7 @@ export function AppHeader({ width = "default" }: { width?: PageWidth }) {
             <div className="lg:hidden">
               <SearchBar compact />
             </div>
+            {signedIn ? <NotificationBell /> : null}
             <div className="hidden lg:block">
               <SignInControl />
             </div>
@@ -183,6 +190,9 @@ export function AppHeader({ width = "default" }: { width?: PageWidth }) {
                 Leaderboard
               </NavLink>
               <CouncilNavLink role="menuitem" onClick={closeMenu} className={classicTabClass} />
+              <NavLink to="/showcase" role="menuitem" onClick={closeMenu} className={classicTabClass}>
+                Showcase
+              </NavLink>
               <NavLink to="/translate" role="menuitem" onClick={closeMenu} className={classicTabClass}>
                 Translate
               </NavLink>
@@ -226,7 +236,7 @@ export function AppHeader({ width = "default" }: { width?: PageWidth }) {
     >
       <div
         className={cn(
-          "mx-auto flex items-center justify-between gap-4 py-4 lg:grid lg:grid-cols-[auto_auto_1fr_auto] lg:gap-6",
+          "mx-auto flex items-center justify-between gap-4 py-4 lg:grid lg:grid-cols-[auto_auto_minmax(0,1fr)_auto] lg:gap-6",
           pageWidthClass(width),
         )}
       >
@@ -253,6 +263,7 @@ export function AppHeader({ width = "default" }: { width?: PageWidth }) {
           </NavTab>
           <NavTab to="/curators">Leaderboard</NavTab>
           <CouncilNavLink className={deskTabClass} indicator={navPill} />
+          <NavTab to="/showcase">Showcase</NavTab>
           <NavTab to="/translate">Translate</NavTab>
           <NavTab to="/submit">Submit</NavTab>
           <NavTab to="/docs">Docs</NavTab>
@@ -264,6 +275,7 @@ export function AppHeader({ width = "default" }: { width?: PageWidth }) {
           <div className="lg:hidden">
             <SearchBar compact glass />
           </div>
+          {signedIn ? <NotificationBell /> : null}
           <div className="hidden lg:block">
             <SignInControl glass />
           </div>
@@ -273,7 +285,7 @@ export function AppHeader({ width = "default" }: { width?: PageWidth }) {
             aria-label={menuOpen ? "Close menu" : "Open menu"}
             aria-expanded={menuOpen}
             aria-haspopup="menu"
-            className="group flex cursor-pointer rounded-md p-1.5 text-unison-text transition-colors hover:bg-unison-bg-hover lg:hidden"
+            className="group flex cursor-pointer max-sm:-mr-2 rounded-md p-1.5 text-unison-text transition-colors hover:bg-unison-bg-hover lg:hidden"
           >
             <IconSwap
               swapped={menuOpen}
@@ -308,6 +320,9 @@ export function AppHeader({ width = "default" }: { width?: PageWidth }) {
               Leaderboard
             </NavLink>
             <CouncilNavLink role="menuitem" onClick={closeMenu} className={newMobileTabClass} />
+            <NavLink to="/showcase" role="menuitem" onClick={closeMenu} className={newMobileTabClass}>
+              Showcase
+            </NavLink>
             <NavLink to="/translate" role="menuitem" onClick={closeMenu} className={newMobileTabClass}>
               Translate
             </NavLink>

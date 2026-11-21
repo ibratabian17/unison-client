@@ -1,3 +1,4 @@
+import { resolveApiPath } from "./api-url"
 import type { SignedBody } from "./auth"
 
 interface ApiOk<T> {
@@ -31,8 +32,6 @@ export interface LinkStatus {
   discordUsername: string | null
   discordAvatarUrl?: string | null
 }
-
-import { resolveApiPath } from "./api-url"
 
 export async function startDiscordLink(signedBody: SignedBody): Promise<{ authorizeUrl: string }> {
   const res = await fetch(resolveApiPath("/links/discord/start"), {

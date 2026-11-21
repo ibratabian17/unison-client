@@ -1,3 +1,4 @@
+import { resolveApiPath } from "./api-url"
 import type { ApiEnvelope } from "./types"
 
 export interface ChoiceOption {
@@ -114,8 +115,6 @@ async function readErrorCode(res: Response): Promise<string> {
     return "REQUEST_FAILED"
   }
 }
-
-import { resolveApiPath } from "./api-url"
 
 async function postJson(path: string, body: unknown): Promise<void> {
   const res = await fetch(resolveApiPath(path), {

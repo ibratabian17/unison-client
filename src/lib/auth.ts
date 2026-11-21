@@ -1,3 +1,4 @@
+import { resolveApiPath } from "./api-url"
 import { IS_SPA_EXPANSION_SEED, getSeedSession } from "./seed-flag"
 import type { StoredSession } from "./session-types"
 import type { ApiEnvelope } from "./types"
@@ -12,6 +13,7 @@ export interface Identity {
   expiresAt: number
   avatarUrl?: string | null
   council?: { admin: boolean } | null
+  canSuggest?: boolean
 }
 
 export interface SignedBody {
@@ -81,8 +83,6 @@ async function unwrap<T>(res: Response): Promise<T> {
   return envelope.data
 }
 
-import { resolveApiPath } from "./api-url"
-
 export async function fetchChallenge(): Promise<Challenge> {
   const res = await fetch(resolveApiPath("/auth/challenge"))
   return unwrap<Challenge>(res)
@@ -119,4 +119,3 @@ export async function revokeSession(token: string): Promise<void> {
     headers: { authorization: `Bearer ${token}` },
   })
 }
-

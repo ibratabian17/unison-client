@@ -3,21 +3,21 @@ import { AvatarPicker } from "@/components/AvatarPicker"
 import { CollapsibleSection } from "@/components/CollapsibleSection"
 import { DiscordSection } from "@/components/DiscordSection"
 import { NicknameEditor } from "@/components/NicknameEditor"
-import { type DiscordLink, useDiscordLink } from "@/hooks/useDiscordLink"
+import type { DiscordLink } from "@/hooks/useDiscordLink"
+import { useNotificationSettings, useSetNotificationSettings } from "@/hooks/useNotifications"
 import { type ReactNode, useState } from "react"
 import { putProfileSettings } from "@/lib/api"
 
 // The signed-in owner's editing controls, shown on their own profile wherever it renders.
 interface OwnerControlsProps {
+  discord: DiscordLink
+  discordRevealRequest: number
   showDiscord: boolean
-  discord?: DiscordLink
   onProfileChange: () => Promise<void>
 }
 
-export function OwnerControls({ showDiscord, discord: externalDiscord, onProfileChange }: OwnerControlsProps) {
+export function OwnerControls({ discord, discordRevealRequest, showDiscord, onProfileChange }: OwnerControlsProps) {
   const session = useSession()
-  const fallbackDiscord = useDiscordLink({ enabled: !externalDiscord })
-  const discord = externalDiscord ?? fallbackDiscord
 
   const link: DiscordLink = {
     ...discord,
@@ -28,7 +28,6 @@ export function OwnerControls({ showDiscord, discord: externalDiscord, onProfile
         session.identity.avatarUrl === discord.discordAvatarUrl
       const disconnected = await discord.disconnect()
       if (disconnected && usingDiscordPhoto) session.updateAvatarUrl(null)
-      if (disconnected) await onProfileChange()
       return disconnected
     },
   }
@@ -44,6 +43,15 @@ export function OwnerControls({ showDiscord, discord: externalDiscord, onProfile
     }
   }
 
+  const notificationSettings = useNotificationSettings(discord.status === "linked")
+  const setNotificationSettings = useSetNotificationSettings()
+  const notificationDm = notificationSettings.data
+    ? {
+        checked: notificationSettings.data.discordDm,
+        onChange: (checked: boolean) => setNotificationSettings.mutate({ discordDm: checked }),
+      }
+    : undefined
+
   return (
     <>
       <OwnerSection title="Profile picture" subtitle="Pick how you appear across Unison.">
@@ -52,16 +60,34 @@ export function OwnerControls({ showDiscord, discord: externalDiscord, onProfile
       <OwnerSection title="Nickname" subtitle="How you appear across Unison.">
         <NicknameEditor />
       </OwnerSection>
-      <OwnerSection title="Discord" subtitle="Link your account for leaderboard roles.">
-        <DiscordSection link={link} showOnProfile={{ checked: discordShown, onChange: toggleDiscord }} />
+      <OwnerSection
+        title="Discord"
+        subtitle="Link your account for leaderboard roles."
+        revealRequest={discordRevealRequest}
+      >
+        <DiscordSection
+          link={link}
+          showOnProfile={{ checked: discordShown, onChange: toggleDiscord }}
+          notificationDm={notificationDm}
+        />
       </OwnerSection>
     </>
   )
 }
 
-function OwnerSection({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
+function OwnerSection({
+  title,
+  subtitle,
+  revealRequest,
+  children,
+}: {
+  title: string
+  subtitle: string
+  revealRequest?: number
+  children: ReactNode
+}) {
   return (
-    <CollapsibleSection title={title} defaultOpen={false}>
+    <CollapsibleSection title={title} defaultOpen={false} revealRequest={revealRequest} className="scroll-mt-8">
       <p className="mb-3 text-xs text-unison-text-muted">{subtitle}</p>
       {children}
     </CollapsibleSection>

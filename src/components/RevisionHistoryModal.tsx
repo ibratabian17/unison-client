@@ -8,7 +8,7 @@ import {
 import { SongThumbnail } from "@/components/SongThumbnail"
 import { UserAvatar } from "@/components/UserAvatar"
 import { CouncilOverlay } from "@/components/council/CouncilOverlay"
-import { type DiffMode, DiffView } from "@/components/council/DiffView"
+import { type DiffMode, DiffView } from "@/components/DiffView"
 import { Segmented } from "@/components/council/Segmented"
 import { Callout, Chip } from "@/components/council/detail-parts"
 import { Bone } from "@/components/skeleton"

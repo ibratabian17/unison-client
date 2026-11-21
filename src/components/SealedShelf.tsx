@@ -1,6 +1,7 @@
 import { resolveAssetUrl } from "@/lib/badge-view"
 import { useQuery } from "@tanstack/react-query"
 import type { ReactNode } from "react"
+import { CouncilSeal } from "@/components/CouncilSeal"
 import { LeaderboardSection, SeeAllLink } from "@/components/LeaderboardSection"
 import { SealedTile, SealedTileSkeleton } from "@/components/SealedTile"
 import { skeletonKeys } from "@/components/skeleton"
@@ -10,7 +11,7 @@ const SHELF_LIMIT = 12
 
 const title = (
   <span className="inline-flex items-center gap-2">
-    <img src={resolveAssetUrl("/badges/committee/image.svg")} alt="" className="size-[22px] -rotate-6" />
+    <CouncilSeal className="block size-[22px] -rotate-6" />
     Sealed by the Council
   </span>
 )

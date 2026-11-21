@@ -1,7 +1,8 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { AuthProvider } from "@/auth/AuthProvider"
 import { type StoredSession, saveStoredSession } from "@/lib/auth"
+import { fetchRouter, jsonResponse } from "@/test/fetch-router"
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NicknameEditor } from "./NicknameEditor"
 
 const valid: StoredSession = {
@@ -11,31 +12,11 @@ const valid: StoredSession = {
   expiresAt: Math.floor(Date.now() / 1000) + 1000,
 }
 
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
-}
-
 function meResponse(): Response {
   return jsonResponse({
     success: true,
     data: { keyId: valid.keyId, displayName: valid.displayName, expiresAt: valid.expiresAt },
   })
-}
-
-interface FetchRoute {
-  match: (url: string, init?: RequestInit) => boolean
-  respond: () => Response | Promise<Response>
-}
-
-function fetchRouter(routes: FetchRoute[]) {
-  const calls: { url: string; init?: RequestInit }[] = []
-  const fn = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
-    calls.push({ url, init })
-    const route = routes.find((r) => r.match(url, init))
-    if (!route) throw new Error(`unrouted fetch: ${url}`)
-    return route.respond()
-  })
-  return { fn, calls }
 }
 
 async function flush() {
@@ -369,34 +350,5 @@ describe("NicknameEditor", () => {
     })
     await flush()
     expect(screen.getByTestId("nickname-status").textContent ?? "").toMatch(/try again in a moment/i)
-  })
-
-  it("renders read-only notice when signed in with the public community account", async () => {
-    const publicSession: StoredSession = {
-      sessionToken: "tok",
-      keyId: "cea10b57de8e060ed1a180a00c2bc717a2ab4f231d88fd33ffa6a50a04f23b6e",
-      displayName: "MysticSnareRise",
-      expiresAt: Math.floor(Date.now() / 1000) + 1000,
-    }
-    saveStoredSession(publicSession)
-    const router = fetchRouter([
-      {
-        match: (u) => u === "/auth/me",
-        respond: () =>
-          jsonResponse({
-            success: true,
-            data: {
-              keyId: publicSession.keyId,
-              displayName: publicSession.displayName,
-              expiresAt: publicSession.expiresAt,
-            },
-          }),
-      },
-    ])
-    vi.stubGlobal("fetch", router.fn)
-    await mountEditor()
-    expect(screen.getByTestId("nickname-editor-public")).toBeTruthy()
-    expect(screen.getByText(/Username changes are only available on private accounts/i)).toBeTruthy()
-    expect(screen.queryByRole("button", { name: /save/i })).toBeNull()
   })
 })

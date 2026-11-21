@@ -1,7 +1,9 @@
 import { AuthProvider } from "@/auth/AuthProvider"
 import { useSession } from "@/auth/useSession"
 import { clearAsyncDataCache } from "@/hooks/useAsyncData"
+import { useDiscordLink } from "@/hooks/useDiscordLink"
 import { saveStoredSession } from "@/lib/auth"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { OwnerControls } from "./OwnerControls"
@@ -59,12 +61,22 @@ function HeaderProbe() {
   )
 }
 
+function Controls() {
+  const discord = useDiscordLink()
+  return (
+    <OwnerControls discord={discord} discordRevealRequest={0} showDiscord={false} onProfileChange={async () => {}} />
+  )
+}
+
 function renderControls() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
   return render(
-    <AuthProvider>
-      <HeaderProbe />
-      <OwnerControls showDiscord={false} onProfileChange={async () => {}} />
-    </AuthProvider>,
+    <QueryClientProvider client={client}>
+      <AuthProvider>
+        <HeaderProbe />
+        <Controls />
+      </AuthProvider>
+    </QueryClientProvider>,
   )
 }
 

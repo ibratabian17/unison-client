@@ -1,33 +1,38 @@
+import { CollapsibleSection } from "@/components/CollapsibleSection"
+import { ProfileHeader } from "@/components/ProfileHeader"
+import { StatPills } from "@/components/StatPills"
+import { useUiMode } from "@/context/UiModeContext"
 import "./profile.css"
 import { IconEye } from "@tabler/icons-react"
 import { type Ref, useCallback, useRef, useState } from "react"
+import { useLocation } from "react-router-dom"
 import { useOptionalSession, useViewerOwns } from "@/auth/useSession"
+import { usePageArt } from "@/components/PageArt"
 import { BadgeCatalogueProvider, useBadgeCatalogue } from "@/components/BadgeCatalogueContext"
 import { BadgeModalProvider } from "@/components/BadgeModalContext"
 import { BadgeWall } from "@/components/BadgeWall"
-import { CollapsibleSection } from "@/components/CollapsibleSection"
 import { EmptyState } from "@/components/EmptyState"
 import { FeaturedBadgeEditor } from "@/components/FeaturedBadgeEditor"
 import { OwnerControls } from "@/components/OwnerControls"
-import { usePageArt } from "@/components/PageArt"
-import { ProfileHeader } from "@/components/ProfileHeader"
-import { ProfileSkeleton } from "@/components/ProfileSkeleton"
-import { StatPills } from "@/components/StatPills"
-import { SubmissionsList } from "@/components/SubmissionsList"
 import { BannerPicker } from "@/components/profile/BannerPicker"
 import { ProfileCard } from "@/components/profile/ProfileCard"
 import { ProfileSide } from "@/components/profile/ProfileSide"
 import { SectionHeading } from "@/components/profile/SectionHeading"
+import { SuggestionInbox } from "@/components/profile/SuggestionInbox"
 import { PROFILE_STAGE } from "@/components/profile/layout"
+import { ProfileSkeleton } from "@/components/ProfileSkeleton"
+import { SubmissionsList } from "@/components/SubmissionsList"
 import { glassActionClass, glassClass } from "@/components/ui"
-import { useUiMode } from "@/context/UiModeContext"
 import { setAsyncData, useAsyncData } from "@/hooks/useAsyncData"
 import { type DiscordLink, useDiscordLink } from "@/hooks/useDiscordLink"
+import { usePageTitle } from "@/hooks/usePageTitle"
 import { useProfileArt } from "@/hooks/useProfileArt"
-import { fetchUserBadges, fetchUserRank } from "@/lib/api"
+import { fetchUserBadges, fetchUserRank, isNotFound } from "@/lib/api"
 import { cn } from "@/lib/cn"
 import { formatRank, titleCase } from "@/lib/format"
 import { languageName } from "@/lib/language"
+import { NOT_FOUND_TITLE, profileTitle, titleForPath } from "@/lib/page-title"
+import { scrollToStart } from "@/lib/scroll"
 import type { BadgeCatalogue, ExpertiseEntry, UserGamification, UserRankResponse } from "@/lib/types"
 
 interface UserProfileViewProps {
@@ -44,20 +49,19 @@ function ExpertiseStrip({ entries, classic = false }: { entries: ExpertiseEntry[
           {entries.map((entry) => (
             <span
               key={`${entry.scope}:${entry.name}`}
-              className="inline-flex items-baseline gap-2 rounded-[10px] bg-[rgba(255,255,255,0.025)] px-3.5 py-2.5 shadow-[inset_0_0_0_1px_var(--color-unison-border)]"
+              className="inline-flex items-baseline gap-2 rounded-lg border border-unison-border bg-unison-bg-elevated px-3 py-2"
             >
-              <span className="text-xs capitalize text-unison-text-muted">{entry.scope}</span>
+              <span className="text-xs text-unison-text-muted">{titleCase(entry.scope)}</span>
               <span className="text-sm font-semibold text-unison-text">
                 {entry.scope === "language" ? languageName(entry.name) : entry.name}
               </span>
-              <span className="text-[12.5px] font-bold text-unison-medal-gold">{formatRank(entry.rank)}</span>
+              <span className="text-xs font-bold text-unison-medal-gold tabular-nums">{formatRank(entry.rank)}</span>
             </span>
           ))}
         </div>
       </CollapsibleSection>
     )
   }
-
   return (
     <section className="flex flex-col gap-4">
       <SectionHeading title="Top expertise" />
@@ -87,7 +91,7 @@ function PreviewBar({ onExit }: { onExit: () => void }) {
     <div className={cn(PANEL, "t-reveal mb-6 flex items-center justify-between gap-3 py-2.5 pr-2.5 pl-4")}>
       <span className="flex items-center gap-2 text-sm text-(--ink-2)">
         <IconEye className="size-4" stroke={1.7} />
-        You&apos;re previewing your public profile.
+        You're previewing your public profile.
       </span>
       <button type="button" onClick={onExit} className={cn(glassActionClass, "h-9 px-3.5 text-[13px]")}>
         Exit preview
@@ -100,18 +104,20 @@ function OwnerBlock({
   ref,
   gamification,
   catalogue,
-  discord,
   onGamificationChange,
   onPreview,
+  discord,
+  discordRevealRequest,
   showDiscord,
   onProfileChange,
 }: {
   ref: Ref<HTMLElement>
   gamification: UserGamification | null
   catalogue: BadgeCatalogue | null
-  discord: DiscordLink
   onGamificationChange: (updated: UserGamification) => void
   onPreview: () => void
+  discord: DiscordLink
+  discordRevealRequest: number
   showDiscord: boolean
   onProfileChange: () => Promise<void>
 }) {
@@ -119,7 +125,11 @@ function OwnerBlock({
     <section ref={ref} id="edit-profile" className="flex scroll-mt-8 flex-col gap-4">
       <div className="flex items-center gap-3">
         <h2 className="m-0 text-xl font-bold tracking-[-0.01em]">Edit profile</h2>
-        <button type="button" onClick={onPreview} className={cn(glassActionClass, "ml-auto h-9 pr-3.5 pl-3 text-[13px]")}>
+        <button
+          type="button"
+          onClick={onPreview}
+          className={cn(glassActionClass, "ml-auto h-9 pr-3.5 pl-3 text-[13px]")}
+        >
           <IconEye className="size-4" stroke={1.7} />
           Preview as a visitor
         </button>
@@ -128,64 +138,49 @@ function OwnerBlock({
         {gamification && catalogue ? (
           <FeaturedBadgeEditor gamification={gamification} catalogue={catalogue} onSaved={onGamificationChange} />
         ) : null}
-        <OwnerControls showDiscord={showDiscord} discord={discord} onProfileChange={onProfileChange} />
+        <OwnerControls
+          discord={discord}
+          discordRevealRequest={discordRevealRequest}
+          showDiscord={showDiscord}
+          onProfileChange={onProfileChange}
+        />
       </div>
     </section>
   )
 }
 
+
 function ClassicOwnerBlock({
   gamification,
   catalogue,
-  discord,
   onGamificationChange,
+  discord,
+  discordRevealRequest,
   showDiscord,
   onProfileChange,
 }: {
   gamification: UserGamification | null
   catalogue: BadgeCatalogue | null
-  discord: DiscordLink
   onGamificationChange: (updated: UserGamification) => void
+  discord: DiscordLink
+  discordRevealRequest: number
   showDiscord: boolean
   onProfileChange: () => Promise<void>
 }) {
-  const [preview, setPreview] = useState(false)
-
-  if (preview) {
-    return (
-      <div className="mt-12 flex items-center justify-between gap-3 rounded-lg bg-white/[0.04] py-2.5 pr-3.5 pl-4">
-        <span className="flex items-center gap-2 text-sm text-unison-text-secondary">
-          <IconEye className="size-4" stroke={1.7} />
-          You&apos;re previewing your public profile.
-        </span>
-        <button
-          type="button"
-          onClick={() => setPreview(false)}
-          className="cursor-pointer rounded-md bg-unison-bg-hover px-3 py-1.5 text-sm font-medium text-unison-text transition-colors hover:bg-unison-bg-elevated active:scale-[0.96]"
-        >
-          Exit preview
-        </button>
-      </div>
-    )
-  }
-
   return (
-    <div className="mt-12 space-y-6">
-      <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={() => setPreview(true)}
-          className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-unison-surface py-2 pr-4 pl-3 text-[13px] font-medium text-unison-text-secondary transition-colors hover:bg-unison-bg-hover hover:text-unison-text active:scale-[0.96]"
-        >
-          <IconEye className="size-3" stroke={1.7} />
-          Preview as a visitor
-        </button>
+    <CollapsibleSection title="Edit profile" defaultOpen={false} className="mt-10">
+      <div className="space-y-6 rounded-lg border border-unison-border bg-unison-bg-elevated p-5">
+        {gamification && catalogue ? (
+          <FeaturedBadgeEditor gamification={gamification} catalogue={catalogue} onSaved={onGamificationChange} />
+        ) : null}
+        <OwnerControls
+          discord={discord}
+          discordRevealRequest={discordRevealRequest}
+          showDiscord={showDiscord}
+          onProfileChange={onProfileChange}
+        />
       </div>
-      {gamification && catalogue ? (
-        <FeaturedBadgeEditor gamification={gamification} catalogue={catalogue} onSaved={onGamificationChange} />
-      ) : null}
-      <OwnerControls showDiscord={showDiscord} discord={discord} onProfileChange={onProfileChange} />
-    </div>
+    </CollapsibleSection>
   )
 }
 
@@ -210,12 +205,13 @@ function ProfileBody({
   const isClassic = uiMode === "classic"
   const art = useProfileArt(rank)
   usePageArt(art.wash)
-  const discord = useDiscordLink({ enabled: isOwner })
   const [preview, setPreview] = useState(false)
   const editRef = useRef<HTMLElement>(null)
   const pickerRef = useRef<HTMLDivElement>(null)
   const [bannerAnchor, setBannerAnchor] = useState<HTMLElement | null>(null)
   const owner = isOwner && !preview
+  const discord = useDiscordLink({ enabled: isOwner })
+  const [discordRevealRequest, setDiscordRevealRequest] = useState(0)
 
   if (isClassic) {
     return (
@@ -228,16 +224,23 @@ function ProfileBody({
           ) : (
             <EmptyState
               title="No leaderboard activity yet"
-              hint="Submit lyrics via Better Lyrics to start showing up on the leaderboard."
+              hint="Submit lyrics to start showing up on the leaderboard."
             />
           )}
         </div>
+
+        {isOwner ? (
+          <div className="mt-8">
+            <SuggestionInbox />
+          </div>
+        ) : null}
 
         {isOwner ? (
           <ClassicOwnerBlock
             gamification={gamification}
             catalogue={catalogue}
             discord={discord}
+            discordRevealRequest={discordRevealRequest}
             onGamificationChange={onGamificationChange}
             showDiscord={rank.discord !== undefined}
             onProfileChange={onProfileChange}
@@ -261,11 +264,6 @@ function ProfileBody({
         </div>
       </div>
     )
-  }
-
-  const editProfile = () => {
-    const still = matchMedia("(prefers-reduced-motion: reduce)").matches
-    editRef.current?.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "start" })
   }
 
   return (
@@ -303,12 +301,15 @@ function ProfileBody({
           rank={rank}
           gamification={gamification}
           owner={owner}
-          discord={discord}
-          onEditProfile={editProfile}
+          onEditProfile={() => scrollToStart(editRef.current)}
+          onConnectDiscord={
+            discord.status === "unlinked" ? () => setDiscordRevealRequest((request) => request + 1) : undefined
+          }
         />
       </section>
 
       <div className="flex flex-col gap-14 pb-[108px]">
+        {owner ? <SuggestionInbox /> : null}
         <SubmissionsList keyId={keyId} total={rank.ranked ? rank.submissionCount : undefined} owner={owner} />
         {gamification?.topExpertise && gamification.topExpertise.length > 0 ? (
           <ExpertiseStrip entries={gamification.topExpertise} />
@@ -323,12 +324,13 @@ function ProfileBody({
             ref={editRef}
             gamification={gamification}
             catalogue={catalogue}
-            discord={discord}
             onGamificationChange={onGamificationChange}
             onPreview={() => {
               setBannerAnchor(null)
               setPreview(true)
             }}
+            discord={discord}
+            discordRevealRequest={discordRevealRequest}
             showDiscord={rank.discord !== undefined}
             onProfileChange={onProfileChange}
           />
@@ -408,6 +410,8 @@ export function UserProfileView({ keyId }: UserProfileViewProps) {
   }, [keyId])
 
   const fetchedRank = rankOverride?.keyId === keyId ? rankOverride : rank.status === "success" ? rank.data : null
+  const ownTitle = fetchedRank ? profileTitle(fetchedRank.displayName) : isNotFound(rank.error) ? NOT_FOUND_TITLE : null
+  usePageTitle(titleForPath(useLocation().pathname) === null ? ownTitle : null)
   const shownRank =
     fetchedRank && ownAvatarUrl !== undefined ? { ...fetchedRank, avatarUrl: ownAvatarUrl } : fetchedRank
   const fetched = gamification.status === "success" ? gamification.data : null

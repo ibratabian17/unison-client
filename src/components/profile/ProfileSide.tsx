@@ -1,27 +1,25 @@
 import { resolveApiPath } from "@/lib/api-url"
-import { IconCheck, IconDownload, IconPencil, IconShare } from "@tabler/icons-react"
-import { motion } from "motion/react"
-import { IconSwap } from "@/components/icons/IconSwap"
-import { SwapLabel } from "@/components/SwapLabel"
 import { OdometerNumber } from "@/components/OdometerNumber"
-import { DiscordChip, DiscordConnectChip } from "@/components/profile/DiscordChip"
+import { SwapLabel } from "@/components/SwapLabel"
+import { DiscordIcon } from "@/components/icons/DiscordIcon"
+import { IconSwap } from "@/components/icons/IconSwap"
+import { DiscordChip } from "@/components/profile/DiscordChip"
 import { chipClass, chipIconClass, raisedChipClass } from "@/components/ui"
 import { useCopied } from "@/hooks/useCopied"
-import type { DiscordLink } from "@/hooks/useDiscordLink"
-import { LAYOUT_TRANSITION } from "@/lib/motion-variants"
 import { plural } from "@/lib/format"
 import { levelProgress } from "@/lib/level"
-import { fetchUserFulfillmentStats, type UserFulfillmentStats } from "@/lib/api"
-import { useEffect, useState } from "react"
+import { LAYOUT_TRANSITION } from "@/lib/motion-variants"
 import type { UserGamification, UserRankResponse } from "@/lib/types"
+import { IconCheck, IconDownload, IconPencil, IconShare } from "@tabler/icons-react"
+import { motion } from "motion/react"
 
 interface ProfileSideProps {
   keyId: string
   rank: UserRankResponse
   gamification: UserGamification | null
   owner: boolean
-  discord?: DiscordLink
   onEditProfile: () => void
+  onConnectDiscord?: () => void
 }
 
 function profileUrl(handle: string | null | undefined, keyId: string): string {
@@ -63,17 +61,7 @@ function LevelLine({ gamification }: { gamification: UserGamification }) {
   )
 }
 
-export function ProfileSide({ keyId, rank, gamification, owner, discord, onEditProfile }: ProfileSideProps) {
-  const [stats, setStats] = useState<UserFulfillmentStats | null>(null)
-  useEffect(() => {
-    let cancelled = false
-    fetchUserFulfillmentStats(keyId).then((res) => {
-      if (!cancelled && res && res.requestsFulfilled > 0) setStats(res)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [keyId])
+export function ProfileSide({ keyId, rank, gamification, owner, onEditProfile, onConnectDiscord }: ProfileSideProps) {
   const [copied, copy] = useCopied()
   const share = (
     <motion.button
@@ -96,27 +84,14 @@ export function ProfileSide({ keyId, rank, gamification, owner, discord, onEditP
     </motion.button>
   )
 
-  const showConnectDiscord = owner && !rank.community && !rank.discord && discord?.status === "unlinked"
-
   return (
     <div className="flex min-w-0 flex-col gap-5">
       <Lede rank={rank} />
       {gamification && !rank.community ? <LevelLine gamification={gamification} /> : null}
-      {stats ? (
-        <p className="text-[12.5px] font-semibold text-emerald-400/90 flex items-center gap-1.5">
-          <span>✓ {stats.requestsFulfilled} Most Wanted requests fulfilled</span>
-          <span className="text-unison-text-muted font-normal">({stats.totalDemandFulfilled.toFixed(1)} demand)</span>
-        </p>
-      ) : null}
       <div className="flex flex-wrap items-center gap-2">
         {rank.discord ? (
           <>
             <DiscordChip id={rank.discord.id} username={rank.discord.username} />
-            <span aria-hidden="true" className="mx-1 h-[18px] w-px bg-white/16" />
-          </>
-        ) : showConnectDiscord && discord ? (
-          <>
-            <DiscordConnectChip link={discord} />
             <span aria-hidden="true" className="mx-1 h-[18px] w-px bg-white/16" />
           </>
         ) : null}
@@ -130,6 +105,12 @@ export function ProfileSide({ keyId, rank, gamification, owner, discord, onEditP
               <IconPencil className={chipIconClass} stroke={1.75} />
               Edit profile
             </button>
+            {onConnectDiscord ? (
+              <button type="button" onClick={onConnectDiscord} className={chipClass}>
+                <DiscordIcon className={chipIconClass} />
+                Connect Discord
+              </button>
+            ) : null}
           </>
         ) : null}
         {share}

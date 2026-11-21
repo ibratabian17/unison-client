@@ -1,9 +1,10 @@
-import { useBadgeModal } from "@/components/BadgeModalContext"
 import { CollapsibleSection } from "@/components/CollapsibleSection"
+import { useUiMode } from "@/context/UiModeContext"
+import { useBadgeModal } from "@/components/BadgeModalContext"
 import { OdometerNumber } from "@/components/OdometerNumber"
 import { SectionHeading } from "@/components/profile/SectionHeading"
 import { Tooltip } from "@/components/Tooltip"
-import { useUiMode } from "@/context/UiModeContext"
+import { BadgeArt } from "@/components/BadgeArt"
 import { groupBadgesByCategory, isRareBadge, resolveBadgeImage } from "@/lib/badge-view"
 import { cn } from "@/lib/cn"
 import { titleCase } from "@/lib/format"
@@ -31,6 +32,7 @@ function Pips({ current, next }: { current: number; next: number }) {
     <div className="mt-1.5 flex justify-center gap-[3px]">
       {dots.map((on, i) => (
         <span
+          // biome-ignore lint/suspicious/noArrayIndexKey: fixed-length progress pips have no id
           key={i}
           className={cn("h-[3px] w-3 rounded-full", on ? "bg-unison-medal-gold" : "bg-white/10")}
         />
@@ -131,12 +133,21 @@ function BadgeTile({
         onClick={() => open({ def, userBadge, rare, isCurrentTier, tierRank })}
         className="relative flex cursor-pointer flex-col items-center gap-1.5 rounded-2xl bg-[rgba(15,14,19,0.22)] px-2 pt-3.5 pb-3 text-center backdrop-saturate-150 transition-[background-color,scale] duration-150 ease-out [text-shadow:none] active:scale-[0.96] hover:bg-white/[0.08]"
       >
-        <img
-          src={resolveBadgeImage(def, tier, earned ? "color" : "silhouette")}
-          alt={def.name}
-          draggable={false}
-          className={cn("size-[52px] select-none object-contain", !earned && "opacity-35")}
-        />
+        {earned ? (
+          <BadgeArt
+            src={resolveBadgeImage(def, tier, "color")}
+            silhouette={resolveBadgeImage(def, tier, "silhouette")}
+            alt={def.name}
+            className="block size-[52px] select-none"
+          />
+        ) : (
+          <img
+            src={resolveBadgeImage(def, tier, "silhouette")}
+            alt={def.name}
+            draggable={false}
+            className="size-[52px] select-none object-contain opacity-35"
+          />
+        )}
         <span className={cn("text-xs font-bold leading-[1.25]", earned ? "text-unison-text" : "text-(--ink-dim)")}>
           {def.name}
         </span>
@@ -152,11 +163,14 @@ export function BadgeWall({ gamification, catalogue, defaultOpen = true }: Badge
   const isClassic = uiMode === "classic"
   const { badges, display } = catalogue
   const userByKey = new Map(gamification.badges.map((ub) => [ub.key, ub]))
+  // The held tier is authoritative on `gamification.tier`, not the earned badge list.
   if (gamification.tier && !userByKey.has(gamification.tier)) {
     userByKey.set(gamification.tier, { key: gamification.tier, earned: true, featured: false })
   }
   const defByKey = new Map(badges.map((def) => [def.key, def]))
 
+  // The shared community account sits outside the gamification system: it can only ever
+  // hold the community badge, so its wall shows exactly that, not the aspirational catalogue.
   const communityOnly = gamification.badges.some((b) => b.key === "community" && b.earned)
   const sourceDefs = communityOnly
     ? gamification.badges.map((b) => defByKey.get(b.key)).filter((def): def is BadgeDef => def !== undefined)
@@ -171,61 +185,86 @@ export function BadgeWall({ gamification, catalogue, defaultOpen = true }: Badge
 
   const { earned, total } = gamification.counts
 
-  const metaNode = (
-    <>
-      <b className="font-bold text-unison-medal-gold">
-        <OdometerNumber value={earned} />
-      </b>{" "}
-      of {total} unlocked
-    </>
-  )
-
-  const body = (
+  const wallBody = (
     <div className="flex flex-col gap-6">
-      {groups.map((group) => {
-        const earnedInGroup = group.badges.filter((def) => userByKey.get(def.key)?.earned).length
-        return (
-          <div key={group.category}>
-            <div className="mb-2.5 flex gap-2 text-[13px] font-medium">
-              <h3 className="text-(--ink-2)">{titleCase(group.category)}</h3>
-              <span className="text-(--ink-3)">
-                {earnedInGroup} of {group.badges.length}
-              </span>
-            </div>
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-2">
-              {group.badges.map((def) => {
-                const userBadge = userByKey.get(def.key)
-                const isCurrentTier = group.category === "tier" && def.key === gamification.tier
-                return (
-                  <BadgeTile
-                    key={def.key}
-                    def={def}
-                    userBadge={userBadge}
-                    rare={isRareBadge(def, display.rarityThreshold)}
-                    isCurrentTier={isCurrentTier}
-                    tierRank={gamification.tierRank}
-                  />
-                )
-              })}
-            </div>
+      {groups.map((group) => (
+        <div key={group.category} className="flex flex-col gap-3">
+          <h3 className="m-0 text-xs font-semibold uppercase tracking-[0.08em] text-(--ink-3)">
+            {titleCase(group.category)}
+          </h3>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(108px,1fr))] gap-2.5">
+            {group.badges.map((def) => (
+              <BadgeTile
+                key={def.key}
+                def={def}
+                userBadge={userByKey.get(def.key)}
+                rare={isRareBadge(def, display.rarityThreshold)}
+                isCurrentTier={group.category === "tier" && def.key === gamification.tier}
+                tierRank={gamification.tierRank}
+              />
+            ))}
           </div>
-        )
-      })}
+        </div>
+      ))}
     </div>
   )
 
   if (isClassic) {
     return (
-      <CollapsibleSection title="Badges" summary={metaNode} defaultOpen={defaultOpen}>
-        {body}
+      <CollapsibleSection
+        title="Achievements"
+        meta={`${earned} of ${total} unlocked`}
+        defaultOpen={defaultOpen}
+      >
+        {wallBody}
       </CollapsibleSection>
     )
   }
 
   return (
     <section className="flex flex-col gap-4">
-      <SectionHeading title="Badges" meta={metaNode} />
-      {body}
+      <SectionHeading
+        title="Badges"
+        meta={
+          <>
+            <b className="font-bold text-unison-medal-gold">
+              <OdometerNumber value={earned} />
+            </b>{" "}
+            of {total} unlocked
+          </>
+        }
+      />
+      <div className="flex flex-col gap-6">
+        {groups.map((group) => {
+          const earnedInGroup = group.badges.filter((def) => userByKey.get(def.key)?.earned).length
+          return (
+            <div key={group.category}>
+              <div className="mb-2.5 flex gap-2 text-[13px] font-medium">
+                <h3 className="text-(--ink-2)">{titleCase(group.category)}</h3>
+                <span className="text-(--ink-3)">
+                  {earnedInGroup} of {group.badges.length}
+                </span>
+              </div>
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(112px,1fr))] gap-2">
+                {group.badges.map((def) => {
+                  const userBadge = userByKey.get(def.key)
+                  const isCurrentTier = group.category === "tier" && def.key === gamification.tier
+                  return (
+                    <BadgeTile
+                      key={def.key}
+                      def={def}
+                      userBadge={userBadge}
+                      rare={isRareBadge(def, display.rarityThreshold)}
+                      isCurrentTier={isCurrentTier}
+                      tierRank={gamification.tierRank}
+                    />
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </section>
   )
 }

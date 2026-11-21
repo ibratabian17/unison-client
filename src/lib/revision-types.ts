@@ -1,5 +1,4 @@
-import type { PendingReason } from "./council-types"
-import type { LyricsFormat } from "./types"
+import type { LyricsFormat, PendingReason, RevisionSuggestion, SuggestionDecider } from "./types"
 
 export type DiffPart = ["=" | "+" | "-", string]
 
@@ -30,12 +29,7 @@ export type DiffRow =
     }
   | ({ kind: "syllable"; lineNo: number; startMs: number | null; text: string } & SyllableChange)
   | { kind: "gap"; count: number; section?: "head" }
-  | {
-      kind: "field"
-      field: "language" | "isrc" | "album" | "song" | "artist"
-      before: string | null
-      after: string | null
-    }
+  | { kind: "field"; field: "language" | "isrc" | "album"; before: string | null; after: string | null }
 
 export interface RevisionDiff {
   rows: DiffRow[]
@@ -43,29 +37,6 @@ export interface RevisionDiff {
 }
 
 export type RevisionStatus = "live" | "past" | "pending" | "superseded" | "rejected" | "withdrawn"
-
-export type SuggestionDecider = "owner" | "council"
-
-export interface RevisionSuggestion {
-  id: number
-  revNo: number
-  author: { displayName: string } | null
-  authorKeyId: string | null
-  authorAvatarUrl: string | null
-  pendingReason: PendingReason
-  sealed: boolean
-  createdAt: number
-  councilDecidesAt: number | null
-  note: string | null
-  rejectNoteMaxLength: number
-  decider?: SuggestionDecider
-}
-
-export interface RevisionEditor {
-  keyId: string
-  displayName: string
-  avatarUrl: string | null
-}
 
 export interface RevisionSummary {
   id: number
@@ -76,21 +47,20 @@ export interface RevisionSummary {
   textDrift: number
   timingDrift: number
   revertsRevNo: number | null
-  author: { displayName: string; keyId?: string; avatarUrl?: string | null } | null
+  author: { displayName: string } | null
   reviewNote: string | null
   createdAt: number
   reviewedAt: number | null
-  authorKeyId?: string | null
-  decidedBy?: SuggestionDecider
-  note?: string | null
 }
 
 export interface RevisionDetail extends RevisionSummary {
   lyrics: string
   format: LyricsFormat
-  language: string | null
-  isrc: string | null
-  album: string | null
+}
+
+export interface RevisionInput {
+  lyrics: string
+  format: LyricsFormat
 }
 
 export interface FieldCheck {
@@ -98,36 +68,32 @@ export interface FieldCheck {
   status: "ok" | "warn" | "bad"
   message: string
   line?: number
+  language?: string
+  detectedLanguage?: string
+}
+
+export interface RevisionRateLimit {
+  lyricRemaining: number
+  lyricLimit: number
+  userRemaining: number
+  userLimit: number
 }
 
 export interface PreviewResult {
   checks: FieldCheck[]
-  drift: {
-    text: number
-    timing: number
-    timingOffsetMs: number
-    textLimit: number
-    timingLimit: number
-    anchorRevNo?: number | null
-  }
-  outcome: {
-    goesLive: boolean
-    reason: PendingReason | null
-  }
+  outcome: { goesLive: boolean; reason: PendingReason | null }
   noChanges: boolean
-  rateLimit: {
-    lyricRemaining: number
-    lyricLimit: number
-    userRemaining: number
-    userLimit: number
-  }
-  diff?: RevisionDiff
-  noteMaxLength?: number
-  ownerDecisionSec?: number
+  rateLimit: RevisionRateLimit
+  diff: RevisionDiff
+  noteMaxLength: number
+  ownerDecisionSec: number
   decider?: SuggestionDecider
 }
 
-export interface SavedRevisionResult {
-  revision: RevisionSummary
-  decider?: SuggestionDecider
+export interface SuggestionInboxItem {
+  lyricsId: number
+  videoId: string
+  song: string
+  artist: string
+  suggestion: RevisionSuggestion
 }
