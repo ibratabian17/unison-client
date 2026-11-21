@@ -4,9 +4,10 @@ import { motion } from "motion/react"
 import { IconSwap } from "@/components/icons/IconSwap"
 import { SwapLabel } from "@/components/SwapLabel"
 import { OdometerNumber } from "@/components/OdometerNumber"
-import { DiscordChip } from "@/components/profile/DiscordChip"
+import { DiscordChip, DiscordConnectChip } from "@/components/profile/DiscordChip"
 import { chipClass, chipIconClass, raisedChipClass } from "@/components/ui"
 import { useCopied } from "@/hooks/useCopied"
+import type { DiscordLink } from "@/hooks/useDiscordLink"
 import { LAYOUT_TRANSITION } from "@/lib/motion-variants"
 import { plural } from "@/lib/format"
 import { levelProgress } from "@/lib/level"
@@ -19,6 +20,7 @@ interface ProfileSideProps {
   rank: UserRankResponse
   gamification: UserGamification | null
   owner: boolean
+  discord?: DiscordLink
   onEditProfile: () => void
 }
 
@@ -61,7 +63,7 @@ function LevelLine({ gamification }: { gamification: UserGamification }) {
   )
 }
 
-export function ProfileSide({ keyId, rank, gamification, owner, onEditProfile }: ProfileSideProps) {
+export function ProfileSide({ keyId, rank, gamification, owner, discord, onEditProfile }: ProfileSideProps) {
   const [stats, setStats] = useState<UserFulfillmentStats | null>(null)
   useEffect(() => {
     let cancelled = false
@@ -94,6 +96,8 @@ export function ProfileSide({ keyId, rank, gamification, owner, onEditProfile }:
     </motion.button>
   )
 
+  const showConnectDiscord = owner && !rank.community && !rank.discord && discord?.status === "unlinked"
+
   return (
     <div className="flex min-w-0 flex-col gap-5">
       <Lede rank={rank} />
@@ -108,6 +112,11 @@ export function ProfileSide({ keyId, rank, gamification, owner, onEditProfile }:
         {rank.discord ? (
           <>
             <DiscordChip id={rank.discord.id} username={rank.discord.username} />
+            <span aria-hidden="true" className="mx-1 h-[18px] w-px bg-white/16" />
+          </>
+        ) : showConnectDiscord && discord ? (
+          <>
+            <DiscordConnectChip link={discord} />
             <span aria-hidden="true" className="mx-1 h-[18px] w-px bg-white/16" />
           </>
         ) : null}

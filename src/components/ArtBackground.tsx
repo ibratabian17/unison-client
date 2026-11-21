@@ -1,6 +1,7 @@
 import { Kawarp } from "@kawarp/core"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { cn } from "@/lib/cn"
+import { tokenMs } from "@/lib/motion-tokens"
 
 const WARP = { warpIntensity: 0.9, blurPasses: 8, saturation: 1.5, animationSpeed: 0.8 }
 const SETTLE_MS = 1500
@@ -16,7 +17,8 @@ interface ArtBackgroundProps {
 }
 
 const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches
-const artFadeMs = () => Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--art-fade"))
+const touchScreen = () => matchMedia("(hover: none)").matches
+const artFadeMs = () => tokenMs("--art-fade", 1000)
 
 export function ArtBackground({ src, contained = false, moving = false, dithering, onReady, onShow }: ArtBackgroundProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -42,7 +44,7 @@ export function ArtBackground({ src, contained = false, moving = false, ditherin
   const update = useCallback(
     (warp: Kawarp) => {
       if (reducedMotion()) warp.renderFrame()
-      else if (movingRef.current) play(warp)
+      else if (movingRef.current && !touchScreen()) play(warp)
       else pause(warp)
     },
     [play, pause],
@@ -56,7 +58,7 @@ export function ArtBackground({ src, contained = false, moving = false, ditherin
       warp = new Kawarp(canvas, {
         ...WARP,
         transitionDuration: artFadeMs() || undefined,
-        animationSpeed: movingRef.current ? WARP.animationSpeed : 0,
+        animationSpeed: movingRef.current && !touchScreen() ? WARP.animationSpeed : 0,
       })
     } catch (error: unknown) {
       console.warn("Could not start the background art", error)

@@ -40,7 +40,12 @@ const solidFieldClass =
 
 const SUGGESTED_PAGE_SIZE = 5
 
-const videoMetaCache = new Map<string, VideoMetadata>()
+type EnrichedVideoMeta = VideoMetadata & {
+  album?: string | null
+  durationSeconds?: number
+}
+
+const videoMetaCache = new Map<string, EnrichedVideoMeta>()
 
 function formatSec(sec?: number): string {
   if (!sec || sec <= 0) return ""
@@ -98,7 +103,7 @@ export function LinkedVideosModal({
     : "flex items-center justify-between gap-3 rounded-[10px] bg-white/[0.02] px-3.5 py-2.5 shadow-[inset_0_0_0_1px_var(--color-unison-border)]"
 
   const [videos, setVideos] = useState<LinkedVideo[]>([])
-  const [metaMap, setMetaMap] = useState<Record<string, VideoMetadata>>({})
+  const [metaMap, setMetaMap] = useState<Record<string, EnrichedVideoMeta>>({})
   const [suggestions, setSuggestions] = useState<VideoSuggestion[]>([])
   const [newVideoInput, setNewVideoInput] = useState("")
   const [loading, setLoading] = useState(false)
@@ -116,12 +121,37 @@ export function LinkedVideosModal({
       setError(null)
       const [vRes, sRes] = await Promise.all([
         fetchLinkedVideos(variant.id).catch(() => ({ videos: [] })),
-        isOwner ? fetchSuggestedVideos(variant.id).catch(() => ({ suggestions: [] })) : Promise.resolve({ suggestions: [] }),
+        isOwner
+          ? fetchSuggestedVideos(variant.id).catch(() => ({ suggestions: [], linked: [] }))
+          : Promise.resolve({ suggestions: [], linked: [] }),
       ])
       if (cancelled) return
       const list = vRes.videos.length > 0 ? [...vRes.videos] : [{ videoId: variant.videoId, primary: true }]
       if (!list.some((v) => v.videoId === variant.videoId)) {
         list.unshift({ videoId: variant.videoId, primary: true })
+      }
+      if (sRes.linked && sRes.linked.length > 0) {
+        const linkedMeta: Record<string, EnrichedVideoMeta> = {}
+        for (const item of sRes.linked) {
+          if (!item.videoId) continue
+          const enriched: EnrichedVideoMeta = {
+            title: item.title,
+            artist: item.artist || item.author || variant.artist,
+            song: item.title,
+            authorName: item.artist || item.author || "",
+            album: item.album ?? null,
+            durationSeconds: item.durationSeconds ?? item.duration,
+            thumbnailUrl:
+              item.artworkUrl ||
+              item.thumbnailUrl ||
+              `https://i.ytimg.com/vi/${item.videoId}/mqdefault.jpg`,
+          }
+          videoMetaCache.set(item.videoId, enriched)
+          linkedMeta[item.videoId] = enriched
+        }
+        if (Object.keys(linkedMeta).length > 0) {
+          setMetaMap((prev) => ({ ...prev, ...linkedMeta }))
+        }
       }
       setVideos(list)
       setSuggestions(sRes.suggestions)
@@ -149,7 +179,7 @@ export function LinkedVideosModal({
     if (!isOpen || videos.length === 0) return
     let cancelled = false
 
-    const cached: Record<string, VideoMetadata> = {}
+    const cached: Record<string, EnrichedVideoMeta> = {}
     const toFetch: string[] = []
 
     for (const v of videos) {
@@ -207,11 +237,13 @@ export function LinkedVideosModal({
       setLinkingId(cleanId)
       setError(null)
       if (sugMeta) {
-        const enriched: VideoMetadata = {
+        const enriched: EnrichedVideoMeta = {
           title: sugMeta.title,
           artist: sugMeta.artist || sugMeta.author || variant.artist,
           song: sugMeta.title,
           authorName: sugMeta.artist || sugMeta.author || "",
+          album: sugMeta.album ?? null,
+          durationSeconds: sugMeta.durationSeconds ?? sugMeta.duration,
           thumbnailUrl:
             sugMeta.artworkUrl ||
             sugMeta.thumbnailUrl ||
@@ -296,7 +328,11 @@ export function LinkedVideosModal({
               disabled={busy}
               onClick={() => {
                 const titleDiffers = normalizeTitle(sug.title) !== normalizeTitle(variant.song)
-                if (level !== "same" && titleDiffers && !isConfirming) {
+                const sugDur = sug.durationSeconds ?? sug.duration
+                const durDiffers = Boolean(
+                  variant.duration && variant.duration > 0 && sugDur && Math.abs(sugDur - variant.duration) > 15,
+                )
+                if ((durDiffers || (level !== "same" && titleDiffers)) && !isConfirming) {
                   setConfirmLinkSug(sug)
                   return
                 }
@@ -404,6 +440,8 @@ export function LinkedVideosModal({
                 const displayTitle = meta?.title || (isPrimary ? `${variant.song} · ${variant.artist}` : item.videoId)
                 const sublineParts = [
                   meta?.authorName || (isPrimary ? variant.artist : undefined),
+                  meta?.album || (isPrimary ? variant.album : undefined),
+                  formatSec(meta?.durationSeconds || (isPrimary ? variant.duration : undefined)),
                   item.videoId,
                 ].filter(Boolean)
 

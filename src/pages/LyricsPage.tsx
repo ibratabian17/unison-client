@@ -24,7 +24,9 @@ import { useUiMode } from "@/context/UiModeContext"
 import { useFillHeight } from "@/hooks/useFillHeight"
 import { useLyricsVariant, useLyricsVariants } from "@/hooks/useLyricsData"
 import { useYouTubePlayer } from "@/hooks/useYouTubePlayer"
-import { deleteLyrics, fetchSongRank, type SongRankResponse } from "@/lib/api"
+import { deleteLyrics, fetchSongRank, requestLyrics, type SongRankResponse } from "@/lib/api"
+import { useCouncilRole } from "@/hooks/useCouncilData"
+import { fetchVideoMetadata } from "@/lib/video-metadata"
 import { songBackdrop, useArtwork } from "@/lib/artwork"
 import { pushToast } from "@/lib/toast"
 import { youTubeMusicUrl } from "@/lib/youtube-music"
@@ -41,13 +43,17 @@ export function LyricsPage() {
   const { videoId } = useParams<{ videoId: string }>()
   const [params, setParams] = useSearchParams()
   const [playerActive, setPlayerActive] = useState(false)
-  const [editOpen, setEditOpen] = useState(false)
+  const [editMode, setEditMode] = useState<"owner" | "suggest" | null>(null)
+  const [requesting, setRequesting] = useState(false)
+  const [requested, setRequested] = useState(false)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [videosOpen, setVideosOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [confirmingClassicDelete, setConfirmingClassicDelete] = useState(false)
   const [songRank, setSongRank] = useState<SongRankResponse | null>(null)
   const session = useSession()
+  const councilRole = useCouncilRole()
+  const currentKeyId = session.status === "signed-in" ? session.identity.keyId : undefined
   const queryClient = useQueryClient()
   const variantIdParam = params.get("variantId")
   const navigate = useNavigate()
@@ -177,10 +183,48 @@ export function LyricsPage() {
               : "Be the first to submit synchronized lyrics for this song!"
           }
         />
-        <Link to={`/submit?videoId=${encodeURIComponent(safeVideoId)}`} className={buttonClass("primary", "md")}>
-          <IconPlus className="size-4" />
-          <span>Submit lyrics</span>
-        </Link>
+        <div className="flex flex-wrap items-center justify-center gap-2.5">
+          <Link to={`/submit?videoId=${encodeURIComponent(safeVideoId)}`} className={buttonClass("primary", "md")}>
+            <IconPlus className="size-4" />
+            <span>Submit lyrics</span>
+          </Link>
+          {session.status === "signed-in" ? (
+            <button
+              type="button"
+              disabled={requesting || requested}
+              onClick={async () => {
+                try {
+                  setRequesting(true)
+                  const meta = await fetchVideoMetadata(safeVideoId).catch(() => null)
+                  const res = await requestLyrics({
+                    videoId: safeVideoId,
+                    song: meta?.song || safeVideoId,
+                    artist: meta?.artist || "Unknown Artist",
+                    thumbnailUrl: meta?.thumbnailUrl || `https://i.ytimg.com/vi/${safeVideoId}/hqdefault.jpg`,
+                  })
+                  setRequested(true)
+                  pushToast({
+                    kind: "success",
+                    message:
+                      res.status === "already_requested"
+                        ? `Already requested (${res.requestCount ?? 1} requests)`
+                        : "Lyrics requested — added to Most Wanted",
+                  })
+                } catch (err) {
+                  pushToast({
+                    kind: "error",
+                    message: err instanceof Error ? err.message : "Could not request lyrics",
+                  })
+                } finally {
+                  setRequesting(false)
+                }
+              }}
+              className={buttonClass("fill", "md")}
+            >
+              <span>{requested ? "Requested" : requesting ? "Requesting…" : "Request lyrics"}</span>
+            </button>
+          ) : null}
+        </div>
       </div>
     )
   }
@@ -194,10 +238,12 @@ export function LyricsPage() {
   const modals = variant ? (
     <div key={variant.id}>
       <EditLyricModal
-        key={`edit-${variant.id}`}
+        key={`edit-${variant.id}-${editMode ?? "closed"}`}
         variant={variant}
-        isOpen={editOpen}
-        onClose={() => setEditOpen(false)}
+        mode={editMode ?? "owner"}
+        currentKeyId={currentKeyId}
+        isOpen={editMode !== null}
+        onClose={() => setEditMode(null)}
         onSaved={(newVariantId) => {
           if (newVariantId !== undefined && newVariantId > 0) {
             handleSelect(newVariantId)
@@ -209,6 +255,8 @@ export function LyricsPage() {
       <RevisionHistoryModal
         variant={variant}
         isOwner={isOwner}
+        currentKeyId={currentKeyId}
+        isCouncil={councilRole !== null}
         isOpen={historyOpen}
         onClose={() => setHistoryOpen(false)}
         onReverted={() => {
@@ -269,7 +317,9 @@ export function LyricsPage() {
                 onActivatePlayer={activatePlayer}
                 onOpenHistory={() => setHistoryOpen(true)}
                 onOpenVideos={() => setVideosOpen(true)}
-                onOpenEdit={isOwner ? () => setEditOpen(true) : undefined}
+                onOpenEdit={isOwner ? () => setEditMode("owner") : undefined}
+                onOpenSuggest={session.status === "signed-in" && !isOwner ? () => setEditMode("suggest") : undefined}
+                currentKeyId={currentKeyId}
                 isOwner={isOwner}
               />
             ) : (
@@ -359,7 +409,9 @@ export function LyricsPage() {
         onSelect={handleSelect}
         onOpenHistory={() => setHistoryOpen(true)}
         onOpenVideos={() => setVideosOpen(true)}
-        onOpenEdit={isOwner ? () => setEditOpen(true) : undefined}
+        onOpenEdit={isOwner ? () => setEditMode("owner") : undefined}
+        onOpenSuggest={session.status === "signed-in" && !isOwner ? () => setEditMode("suggest") : undefined}
+        currentKeyId={currentKeyId}
         isOwner={isOwner}
       />
       {modals}

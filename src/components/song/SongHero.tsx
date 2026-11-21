@@ -219,7 +219,7 @@ export function SongHero({
         <div className={cn(TITLE_SIZE[titleSize(variant.song)], "max-sm:self-end")}>
           <h1
             title={variant.song}
-            className="-mr-[0.08em] -mb-[0.08em] line-clamp-2 pr-[0.08em] pb-[0.08em] font-black leading-[1.08] tracking-[-0.035em] text-balance [text-box:trim-start_cap_alphabetic]"
+            className="-mx-[0.14em] -my-[0.12em] line-clamp-2 px-[0.14em] py-[0.12em] font-black leading-[1.08] tracking-[-0.035em] text-balance [text-box:trim-start_cap_alphabetic]"
           >
             {variant.song}
             {seal ? <SealStamp seal={seal} /> : null}

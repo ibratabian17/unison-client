@@ -54,6 +54,10 @@ export const CURATED_LANGUAGE_CODES = [
   "sw",
 ] as const
 
+const CURATED_LANGUAGE_SET = new Set<string>(CURATED_LANGUAGE_CODES)
+const NON_LANGUAGE_CODES = new Set(["und", "mul", "zxx", "mis"])
+const COVERED_BY_CURATED_SET = new Set(["nb", "nn"])
+
 // 130+ languages supported by Google Translate / Unison API
 export const TRANSLATE_LANGUAGES: LanguageItem[] = [
   { code: "af", name: "Afrikaans", native: "Afrikaans" },
@@ -131,14 +135,14 @@ export const TRANSLATE_LANGUAGES: LanguageItem[] = [
   { code: "lg", name: "Luganda", native: "Oluganda" },
   { code: "lb", name: "Luxembourgish", native: "Lëtzebuergesch" },
   { code: "mk", name: "Macedonian", native: "Македонски" },
-  { code: "mai", name: "Maithili", native: "मैथिली" },
+  { code: "mai", name: "Maithili", native: "मैठी" },
   { code: "mg", name: "Malagasy", native: "Fiteny malagasy" },
   { code: "ms", name: "Malay", native: "Bahasa Melayu" },
   { code: "ml", name: "Malayalam", native: "മലയാളം" },
   { code: "mt", name: "Maltese", native: "Malti" },
   { code: "mi", name: "Maori", native: "Māori" },
   { code: "mr", name: "Marathi", native: "मराठी" },
-  { code: "mni-Mtei", name: "Meiteilon (Manipuri)", native: "মৈতৈলোন্" },
+  { code: "mni", name: "Meiteilon (Manipuri)", native: "মৈতৈলোন্" },
   { code: "lus", name: "Mizo", native: "Mizo ṭawng" },
   { code: "mn", name: "Mongolian", native: "Монгол хэл" },
   { code: "my", name: "Myanmar (Burmese)", native: "မြန်မာစာ" },
@@ -298,11 +302,74 @@ export function formatLanguageName(code: string): string {
   return code.toUpperCase()
 }
 
-const COVERED_BY_CURATED: Record<string, string> = { nb: "no", nn: "no" }
+export function isLanguageCode(code: string): boolean {
+  if (CURATED_LANGUAGE_SET.has(code)) return true
+  if (!/^[a-z]{2,3}$/.test(code) || NON_LANGUAGE_CODES.has(code) || COVERED_BY_CURATED_SET.has(code)) {
+    return false
+  }
+  if (EXTRA_LANGUAGE_NAMES.has(code)) return true
+  try {
+    const canonical = Intl.getCanonicalLocales(code)[0]
+    if (canonical !== code) return false
+    const languageNames = new Intl.DisplayNames(["en"], { type: "language", fallback: "none" })
+    return languageNames.of(code) !== undefined
+  } catch {
+    return false
+  }
+}
+
+const scriptOf = (locale: Intl.Locale): string | undefined => locale.maximize().script
+
+/**
+ * Normalizes a BCP-47 language tag using upstream Unison rules (#143, #152, #153):
+ * - Canonicalizes aliases via Intl.Locale (e.g. tl -> fil, iw -> he, in -> id)
+ * - Maps nb/nn -> no
+ * - Strips default scripts (e.g. mni-Mtei -> mni, zh-Hans -> zh) while keeping non-default scripts (zh-TW -> zh-Hant)
+ */
+export function normalizeLanguage(tag: string): string | null {
+  let locale: Intl.Locale
+  try {
+    locale = new Intl.Locale(tag.trim().replace(/_/g, "-"))
+  } catch {
+    return null
+  }
+  if (!locale.language) return null
+  const language = COVERED_BY_CURATED_SET.has(locale.language) ? "no" : locale.language
+  const script = scriptOf(locale)
+  const code = script === scriptOf(new Intl.Locale(language)) ? language : `${language}-${script}`
+  return isLanguageCode(code) ? code : null
+}
+
+/**
+ * Collapses region/script subtags rejected by Google's lyrics_translate endpoint (#153),
+ * keeping zh-Hant and non-default script tags.
+ */
+export function toLyricsTranslateLang(tag: string): string {
+  if (!/[-_]/.test(tag)) return tag
+  let requested: Intl.Locale
+  try {
+    requested = new Intl.Locale(tag.replace(/_/g, "-")).maximize()
+  } catch {
+    return tag
+  }
+  const primary = tag.split(/[-_]/)[0].toLowerCase()
+  const collapsed =
+    requested.language === "zh" ? (requested.script === "Hant" ? "zh-Hant" : "zh") : primary
+  try {
+    return new Intl.Locale(collapsed).maximize().script === requested.script ? collapsed : tag
+  } catch {
+    return collapsed
+  }
+}
+
+const COVERED_BY_CURATED: Record<string, string> = { nb: "no", nn: "no", tl: "fil" }
 
 export function matchLanguageOption(lang: string): string | null {
   const clean = lang.trim()
   if (!clean) return null
+  const normalized = normalizeLanguage(clean)
+  if (normalized) return normalized
+
   const lower = clean.toLowerCase()
   const exactCurated = CURATED_LANGUAGE_CODES.find((c) => c.toLowerCase() === lower)
   if (exactCurated) return exactCurated

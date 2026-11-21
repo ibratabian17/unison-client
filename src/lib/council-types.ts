@@ -63,7 +63,7 @@ export interface QueueItem {
   bookmark: BookmarkView | null
 }
 
-export type PendingReason = "sealed" | "flagged" | "large_text_drift" | "large_timing_drift"
+export type PendingReason = "sealed" | "flagged" | "large_text_drift" | "large_timing_drift" | "suggested"
 
 export interface EditItem {
   lyricsId: number

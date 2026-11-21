@@ -28,6 +28,7 @@ const PENDING_REASON_TEXT: Record<string, string> = {
   flagged: "Flagged for review",
   large_text_drift: "Large text change",
   large_timing_drift: "Large timing change",
+  suggested: "Suggested edit",
 }
 
 function shortKey(keyId: string): string {
@@ -59,6 +60,8 @@ function Stats({
   onOpenHistory,
   onOpenVideos,
   onOpenEdit,
+  onOpenSuggest,
+  currentKeyId,
   isOwner,
 }: {
   variant: VariantFull
@@ -66,11 +69,15 @@ function Stats({
   onOpenHistory?: () => void
   onOpenVideos?: () => void
   onOpenEdit?: () => void
+  onOpenSuggest?: () => void
+  currentKeyId?: string
   isOwner?: boolean
 }) {
   const seal = variant.marks?.find((mark) => mark.type === "seal")
   const revision = variant.revision
-  const showTools = Boolean((isOwner && onOpenEdit) || onOpenHistory || onOpenVideos)
+  const suggestion = revision?.suggestion
+  const isOwnSuggestion = Boolean(currentKeyId && suggestion?.authorKeyId === currentKeyId)
+  const showTools = Boolean((isOwner && onOpenEdit) || (!isOwner && onOpenSuggest) || onOpenHistory || onOpenVideos)
 
   return (
     <>
@@ -149,7 +156,37 @@ function Stats({
         </div>
       ) : null}
 
-      {isOwner && revision?.pending ? (
+      {isOwner && suggestion ? (
+        <div className="mt-3.5">
+          <Callout tone="warn" icon={<IconAlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" stroke={1.5} />}>
+            <b>Suggested edit (Rev {suggestion.revNo})</b> by {suggestion.author?.displayName ?? "a contributor"} is waiting for your review.{" "}
+            {onOpenHistory ? (
+              <button
+                type="button"
+                onClick={onOpenHistory}
+                className="font-semibold text-unison-text underline transition-opacity hover:opacity-80"
+              >
+                Review
+              </button>
+            ) : null}
+          </Callout>
+        </div>
+      ) : isOwnSuggestion && suggestion ? (
+        <div className="mt-3.5">
+          <Callout tone="warn" icon={<IconAlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" stroke={1.5} />}>
+            <b>Your suggestion (Rev {suggestion.revNo}) is waiting.</b>{" "}
+            {onOpenHistory ? (
+              <button
+                type="button"
+                onClick={onOpenHistory}
+                className="font-semibold text-unison-text underline transition-opacity hover:opacity-80"
+              >
+                View or withdraw
+              </button>
+            ) : null}
+          </Callout>
+        </div>
+      ) : isOwner && revision?.pending ? (
         <div className="mt-3.5">
           <Callout tone="warn" icon={<IconAlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" stroke={1.5} />}>
             <b>Rev {revision.pending.revNo} pending review.</b>{" "}
@@ -181,6 +218,11 @@ function Stats({
             <button type="button" onClick={onOpenEdit} className={chipClass}>
               <IconPencil className={chipIconClass} stroke={1.75} />
               <span>Edit lyrics</span>
+            </button>
+          ) : !isOwner && onOpenSuggest ? (
+            <button type="button" onClick={onOpenSuggest} className={chipClass}>
+              <IconPencil className={chipIconClass} stroke={1.75} />
+              <span>{isOwnSuggestion ? "Your suggestion" : "Suggest edit"}</span>
             </button>
           ) : null}
           {onOpenHistory ? (
@@ -247,6 +289,8 @@ interface SongRailProps {
   onOpenHistory?: () => void
   onOpenVideos?: () => void
   onOpenEdit?: () => void
+  onOpenSuggest?: () => void
+  currentKeyId?: string
   isOwner?: boolean
 }
 
@@ -264,6 +308,8 @@ export function SongRail({
   onOpenHistory,
   onOpenVideos,
   onOpenEdit,
+  onOpenSuggest,
+  currentKeyId,
   isOwner,
 }: SongRailProps) {
   return (
@@ -282,6 +328,8 @@ export function SongRail({
             onOpenHistory={onOpenHistory}
             onOpenVideos={onOpenVideos}
             onOpenEdit={onOpenEdit}
+            onOpenSuggest={onOpenSuggest}
+            currentKeyId={currentKeyId}
             isOwner={isOwner}
           />
         </div>

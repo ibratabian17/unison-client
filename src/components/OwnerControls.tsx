@@ -10,12 +10,14 @@ import { putProfileSettings } from "@/lib/api"
 // The signed-in owner's editing controls, shown on their own profile wherever it renders.
 interface OwnerControlsProps {
   showDiscord: boolean
+  discord?: DiscordLink
   onProfileChange: () => Promise<void>
 }
 
-export function OwnerControls({ showDiscord, onProfileChange }: OwnerControlsProps) {
+export function OwnerControls({ showDiscord, discord: externalDiscord, onProfileChange }: OwnerControlsProps) {
   const session = useSession()
-  const discord = useDiscordLink()
+  const fallbackDiscord = useDiscordLink({ enabled: !externalDiscord })
+  const discord = externalDiscord ?? fallbackDiscord
 
   const link: DiscordLink = {
     ...discord,
@@ -26,6 +28,7 @@ export function OwnerControls({ showDiscord, onProfileChange }: OwnerControlsPro
         session.identity.avatarUrl === discord.discordAvatarUrl
       const disconnected = await discord.disconnect()
       if (disconnected && usingDiscordPhoto) session.updateAvatarUrl(null)
+      if (disconnected) await onProfileChange()
       return disconnected
     },
   }

@@ -293,6 +293,8 @@ interface VariantMetadataProps {
   onOpenHistory?: () => void
   onOpenVideos?: () => void
   onOpenEdit?: () => void
+  onOpenSuggest?: () => void
+  currentKeyId?: string
   isOwner?: boolean
 }
 
@@ -304,8 +306,12 @@ export function VariantMetadata({
   onOpenHistory,
   onOpenVideos,
   onOpenEdit,
+  onOpenSuggest,
+  currentKeyId,
   isOwner,
 }: VariantMetadataProps) {
+  const suggestion = variant.revision?.suggestion
+  const isOwnSuggestion = Boolean(currentKeyId && suggestion?.authorKeyId === currentKeyId)
   return (
     <aside className="overflow-hidden rounded-xl border border-unison-border bg-unison-bg-elevated">
       <Cover variant={variant} playerRef={playerRef} playerActive={playerActive} onActivatePlayer={onActivatePlayer} />
@@ -406,7 +412,34 @@ export function VariantMetadata({
             </>
           ) : null}
 
-          {(onOpenVideos || onOpenHistory || onOpenEdit) && (
+          {suggestion && (isOwner || isOwnSuggestion) ? (
+            <>
+              <div className="h-px bg-unison-border" />
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                {isOwner ? (
+                  <>
+                    <b>Suggested edit (Rev {suggestion.revNo})</b> by{" "}
+                    {suggestion.author?.displayName ?? "a contributor"} awaiting review.{" "}
+                  </>
+                ) : (
+                  <>
+                    <b>Your suggestion (Rev {suggestion.revNo})</b> is waiting for review.{" "}
+                  </>
+                )}
+                {onOpenHistory ? (
+                  <button
+                    type="button"
+                    onClick={onOpenHistory}
+                    className="font-semibold text-white underline hover:opacity-80"
+                  >
+                    {isOwner ? "Review" : "View"}
+                  </button>
+                ) : null}
+              </div>
+            </>
+          ) : null}
+
+          {(onOpenVideos || onOpenHistory || onOpenEdit || onOpenSuggest) && (
             <>
               <div className="h-px bg-unison-border" />
               <div className="flex flex-wrap gap-1.5 pt-0.5">
@@ -418,6 +451,15 @@ export function VariantMetadata({
                   >
                     <IconPencil className="size-3.5 text-unison-text-secondary" stroke={1.75} />
                     <span>Edit lyrics</span>
+                  </button>
+                ) : onOpenSuggest && !isOwner ? (
+                  <button
+                    type="button"
+                    onClick={onOpenSuggest}
+                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-unison-border bg-unison-surface px-2.5 py-1.5 text-xs font-medium text-unison-text transition-colors hover:bg-unison-bg-hover"
+                  >
+                    <IconPencil className="size-3.5 text-unison-text-secondary" stroke={1.75} />
+                    <span>{isOwnSuggestion ? "Your suggestion" : "Suggest edit"}</span>
                   </button>
                 ) : null}
                 {onOpenHistory ? (

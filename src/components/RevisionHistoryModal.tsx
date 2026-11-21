@@ -37,6 +37,8 @@ import type {
 interface RevisionHistoryModalProps {
   variant: VariantFull
   isOwner: boolean
+  currentKeyId?: string
+  isCouncil?: boolean
   isOpen: boolean
   onClose: () => void
   onReverted: () => void
@@ -67,6 +69,7 @@ const PENDING_REASONS: Record<string, string> = {
   flagged: "Flagged for review",
   large_text_drift: "Large text change",
   large_timing_drift: "Large timing change",
+  suggested: "Suggested edit",
 }
 
 function getRevisionReasonLabel(rev: LyricRevision): string {
@@ -76,19 +79,22 @@ function getRevisionReasonLabel(rev: LyricRevision): string {
     return (rev.pendingReason && PENDING_REASONS[rev.pendingReason]) || "Pending Council review"
   }
   if (status === "rejected") {
-    return rev.reviewNote ? `“${rev.reviewNote}”` : "Rejected by Council"
+    const who = rev.decidedBy === "owner" ? "owner" : "Council"
+    return rev.reviewNote ? `“${rev.reviewNote}”` : `Rejected by ${who}`
   }
   if (status === "withdrawn") return "Withdrawn by author"
   if (status === "superseded") return "Replaced by newer edit"
   if (rev.revertsRevNo) return `Reverted to Rev ${rev.revertsRevNo}`
   if (revNo === 1) return "Original submission"
-  if (rev.reviewedAt) return "Approved by Council"
+  if (rev.reviewedAt) return rev.decidedBy === "owner" ? "Approved by owner" : "Approved by Council"
   return "Saved within drift limits"
 }
 
 export function RevisionHistoryModal({
   variant,
   isOwner,
+  currentKeyId,
+  isCouncil = false,
   isOpen,
   onClose,
   onReverted,
@@ -108,6 +114,10 @@ export function RevisionHistoryModal({
   const [diffLoading, setDiffLoading] = useState(false)
   const [reverting, setReverting] = useState(false)
   const [withdrawing, setWithdrawing] = useState(false)
+  const [deciding, setDeciding] = useState(false)
+  const [rejectOpen, setRejectOpen] = useState(false)
+  const [rejectNote, setRejectNote] = useState("")
+  const [againstRevId, setAgainstRevId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const loadList = (cancelled = false) => {
@@ -202,12 +212,16 @@ export function RevisionHistoryModal({
     setDiffLoading(true)
     setConfirmingRevert(false)
     setRevertPreview(null)
+    setRejectOpen(false)
+    setRejectNote("")
 
     const selected = revisions.find((r) => r.id === selectedRevId)
     const revNo = selected?.revNo ?? selected?.version ?? 1
 
     Promise.all([
-      revNo === 1 ? Promise.resolve(null) : fetchRevisionDiff(variant.id, selectedRevId),
+      revNo === 1 && againstRevId === null
+        ? Promise.resolve(null)
+        : fetchRevisionDiff(variant.id, selectedRevId, againstRevId ?? undefined),
       fetchRevisionDetail(variant.id, selectedRevId),
     ])
       .then(async ([diffRes, detailRes]) => {
@@ -235,7 +249,7 @@ export function RevisionHistoryModal({
     return () => {
       cancelled = true
     }
-  }, [selectedRevId, variant.id, revisions, isOwner])
+  }, [selectedRevId, againstRevId, variant.id, revisions, isOwner])
 
   if (!isOpen) return null
 
@@ -269,13 +283,63 @@ export function RevisionHistoryModal({
     }
   }
 
+  const handleApprove = async (revId: number) => {
+    try {
+      setDeciding(true)
+      setError(null)
+      await approveLyricRevision(variant.id, revId)
+      pushToast({ kind: "success", message: "Approved revision — now live" })
+      onReverted()
+      loadList(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to approve revision")
+    } finally {
+      setDeciding(false)
+    }
+  }
+
+  const handleReject = async (revId: number) => {
+    try {
+      setDeciding(true)
+      setError(null)
+      await rejectLyricRevision(variant.id, revId, rejectNote.trim() || undefined)
+      pushToast({ kind: "info", message: "Rejected revision" })
+      setRejectOpen(false)
+      setRejectNote("")
+      onReverted()
+      loadList(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reject revision")
+    } finally {
+      setDeciding(false)
+    }
+  }
+
   const selectedRev = revisions.find((r) => r.id === selectedRevId)
   const selectedRevNo = selectedRev?.revNo ?? selectedRev?.version ?? 1
+  const isRevAuthor = Boolean(
+    currentKeyId &&
+      selectedRev &&
+      (selectedRev.authorKeyId === currentKeyId || selectedRev.author?.keyId === currentKeyId),
+  )
+  const canWithdraw = Boolean(
+    selectedRev?.status === "pending" &&
+      (isRevAuthor || (isOwner && selectedRev.pendingReason !== "suggested")),
+  )
+  const canDecide = Boolean(
+    selectedRev?.status === "pending" &&
+      !isRevAuthor &&
+      (isCouncil || (isOwner && selectedRev.pendingReason === "suggested")),
+  )
   const canRevert =
     isOwner &&
     (selectedRev?.status === "past" ||
       (selectedRev && selectedRev.id !== revisions[0]?.id && selectedRev.status !== "pending")) &&
     (!revertPreview || !revertPreview.noChanges)
+  const comparableRevs = revisions.filter((r) => r.id !== selectedRev?.id)
+  const suggestionNote =
+    selectedRev?.note ??
+    (selectedRev && variant.revision?.suggestion?.id === selectedRev.id ? variant.revision.suggestion.note : null)
 
   return (
     <CouncilOverlay
@@ -346,7 +410,7 @@ export function RevisionHistoryModal({
                   <button
                     key={rev.id}
                     type="button"
-                    onClick={() => setSelectedRevId(rev.id)}
+                    onClick={() => { setSelectedRevId(rev.id); setAgainstRevId(null) }}
                     className={cn(
                       "w-full cursor-pointer space-y-1.5 rounded-[12px] p-3 text-left transition-colors",
                       isSelected
@@ -428,7 +492,54 @@ export function RevisionHistoryModal({
                     />
                   ) : null}
 
-                  {isOwner && selectedRev.status === "pending" ? (
+                  {comparableRevs.length > 1 ? (
+                    <select
+                      aria-label="Compare against revision"
+                      value={againstRevId ?? ""}
+                      onChange={(e) => setAgainstRevId(e.target.value ? Number(e.target.value) : null)}
+                      className={cn(
+                        "h-[30px] rounded-[9px] px-2 text-xs text-unison-text-secondary focus:outline-none",
+                        isNew
+                          ? "bg-white/[0.06] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.08)]"
+                          : "border border-unison-border bg-unison-bg",
+                      )}
+                    >
+                      <option value="">vs previous live</option>
+                      {comparableRevs.map((r) => (
+                        <option key={r.id} value={r.id}>
+                          vs Rev {r.revNo ?? r.version ?? r.id}
+                        </option>
+                      ))}
+                    </select>
+                  ) : null}
+
+                  {canDecide ? (
+                    <>
+                      <button
+                        type="button"
+                        disabled={deciding}
+                        onClick={() => void handleApprove(selectedRev.id)}
+                        className={isNew ? raisedChipClass : buttonClass("primary", "sm")}
+                      >
+                        <IconCheck className={chipIconClass} stroke={1.75} />
+                        <span>{deciding ? "Approving…" : "Approve"}</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={deciding}
+                        onClick={() => setRejectOpen((v) => !v)}
+                        className={
+                          isNew
+                            ? cn(chipClass, rejectOpen && "bg-red-500/20 text-[#fca5a5]")
+                            : buttonClass(rejectOpen ? "danger" : "fill", "sm")
+                        }
+                      >
+                        <span>Reject</span>
+                      </button>
+                    </>
+                  ) : null}
+
+                  {canWithdraw ? (
                     <button
                       type="button"
                       disabled={withdrawing}
@@ -496,10 +607,65 @@ export function RevisionHistoryModal({
                 </div>
               ) : null}
 
+              {rejectOpen && canDecide ? (
+                <div className="px-5 pt-4">
+                  <Callout tone="warn" icon={<IconAlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" stroke={1.5} />}>
+                    <div className="space-y-2.5">
+                      <p className="text-xs font-semibold text-unison-text">
+                        Reject Rev {selectedRevNo}? Optional note for the author:
+                      </p>
+                      <input
+                        type="text"
+                        value={rejectNote}
+                        onChange={(e) => setRejectNote(e.target.value)}
+                        maxLength={variant.revision?.suggestion?.rejectNoteMaxLength ?? 500}
+                        placeholder="Optional reason for rejecting…"
+                        disabled={deciding}
+                        className={cn(
+                          "w-full rounded-lg px-3 py-1.5 text-xs text-unison-text placeholder:text-unison-text-muted focus:outline-none",
+                          isNew
+                            ? "bg-white/[0.06] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1)]"
+                            : "border border-unison-border bg-unison-bg",
+                        )}
+                      />
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setRejectOpen(false)}
+                          className={isNew ? chipClass : buttonClass("ghost", "sm")}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          disabled={deciding}
+                          onClick={() => void handleReject(selectedRev.id)}
+                          className={
+                            isNew
+                              ? cn(raisedChipClass, "bg-red-500/25 text-[#fecaca] hover:bg-red-500/35")
+                              : buttonClass("danger", "sm")
+                          }
+                        >
+                          {deciding ? "Rejecting…" : "Confirm reject"}
+                        </button>
+                      </div>
+                    </div>
+                  </Callout>
+                </div>
+              ) : null}
+
+              {suggestionNote ? (
+                <div className="px-5 pt-4">
+                  <Callout tone="plain">
+                    <b>Contributor note:</b> “{suggestionNote}”
+                  </Callout>
+                </div>
+              ) : null}
+
               {selectedRev.reviewNote ? (
                 <div className="px-5 pt-4">
                   <Callout tone="warn" icon={<IconAlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" stroke={1.5} />}>
-                    <b>Council note:</b> “{selectedRev.reviewNote}”
+                    <b>{selectedRev.decidedBy === "owner" ? "Owner note:" : "Council note:"}</b> “{selectedRev.reviewNote}”
                   </Callout>
                 </div>
               ) : null}

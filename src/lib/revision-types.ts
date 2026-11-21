@@ -44,6 +44,29 @@ export interface RevisionDiff {
 
 export type RevisionStatus = "live" | "past" | "pending" | "superseded" | "rejected" | "withdrawn"
 
+export type SuggestionDecider = "owner" | "council"
+
+export interface RevisionSuggestion {
+  id: number
+  revNo: number
+  author: { displayName: string } | null
+  authorKeyId: string | null
+  authorAvatarUrl: string | null
+  pendingReason: PendingReason
+  sealed: boolean
+  createdAt: number
+  councilDecidesAt: number | null
+  note: string | null
+  rejectNoteMaxLength: number
+  decider?: SuggestionDecider
+}
+
+export interface RevisionEditor {
+  keyId: string
+  displayName: string
+  avatarUrl: string | null
+}
+
 export interface RevisionSummary {
   id: number
   revNo: number
@@ -57,6 +80,9 @@ export interface RevisionSummary {
   reviewNote: string | null
   createdAt: number
   reviewedAt: number | null
+  authorKeyId?: string | null
+  decidedBy?: SuggestionDecider
+  note?: string | null
 }
 
 export interface RevisionDetail extends RevisionSummary {
@@ -96,4 +122,12 @@ export interface PreviewResult {
     userLimit: number
   }
   diff?: RevisionDiff
+  noteMaxLength?: number
+  ownerDecisionSec?: number
+  decider?: SuggestionDecider
+}
+
+export interface SavedRevisionResult {
+  revision: RevisionSummary
+  decider?: SuggestionDecider
 }

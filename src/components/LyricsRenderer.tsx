@@ -9,6 +9,9 @@ import type { BraccatoLyricsElement, LineClickDetail } from "@braccato/core/elem
 import { LRCParser, type Lyric, type LyricParser, PlainParser, TTMLParser } from "@braccato/parsers"
 import { useEffect, useMemo, useRef } from "react"
 
+const PHONE_MEDIA = "(hover: none) and (width < 640px)"
+const phoneTheme = braccatoTheme.replace("blyrics-letter-wave = true;", "blyrics-letter-wave = false;")
+
 interface LyricsRendererProps {
   variant: VariantFull
   getCurrentTime: () => number
@@ -75,8 +78,16 @@ export function LyricsRenderer({
       setResumeAffordanceVisible: (visible) => onAutoscrollPauseRef.current?.(visible ? resume : null),
     }
     el.tickOptions = { countEveryUserScroll: true }
-    el.theme = braccatoTheme
-    return () => onAutoscrollPauseRef.current?.(null)
+    const mql = typeof window.matchMedia === "function" ? window.matchMedia(PHONE_MEDIA) : null
+    const applyTheme = () => {
+      el.theme = mql?.matches ? phoneTheme : braccatoTheme
+    }
+    applyTheme()
+    mql?.addEventListener?.("change", applyTheme)
+    return () => {
+      mql?.removeEventListener?.("change", applyTheme)
+      onAutoscrollPauseRef.current?.(null)
+    }
   }, [])
 
   const lang = useMemo(

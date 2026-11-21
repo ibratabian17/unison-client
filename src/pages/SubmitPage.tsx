@@ -1,14 +1,19 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { useSession } from "@/auth/useSession"
-import { submitLyrics, fetchSuggestedVideosForSong } from "@/lib/api"
+import { submitLyrics, fetchSuggestedVideosForSong, linkVideoToLyric } from "@/lib/api"
+import { precheckUnisonTtml } from "@/lib/ttml-precheck"
 import { fetchVideoMetadata } from "@/lib/video-metadata"
-import { getLanguageOptions, detectLyricsLanguage } from "@/lib/languages"
+import { getLanguageOptions, detectLyricsLanguage, normalizeLanguage } from "@/lib/languages"
 import { languageName } from "@/lib/language"
 import { pickTranslationLanguage, translationLanguages } from "@/lib/lyric-translations"
 import {
   detectFormat,
+  detectSyncType,
+  extractVideoId,
+  ISRC_HINT,
   lyricsForSave,
+  normalizeIsrc,
   parseAndValidateLyrics,
   parseDurationInput,
   readableTtml,
@@ -33,20 +38,13 @@ import {
   IconMusic,
   IconAlertTriangle,
   IconSearch,
+  IconLink,
+  IconPlus,
+  IconX,
 } from "@tabler/icons-react"
 import { MetadataFinderModal, type SelectedMetadata } from "@/components/MetadataFinderModal"
 import { matchYouTubeViaBiniLink, resolveIsrcWithMetadata } from "@/lib/binilink"
 import type { LyricsFormat, VariantFull, VideoSuggestion } from "@/lib/types"
-import { videoIdFromInput } from "@/lib/youtube-music"
-
-function extractVideoId(input: string): string {
-  const parsed = videoIdFromInput(input)
-  if (parsed) return parsed
-  const trimmed = input.trim()
-  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) return trimmed
-  const urlMatch = trimmed.match(/(?:v=|\/embed\/|\.be\/|\/v\/|watch\?v=|\/shorts\/)([a-zA-Z0-9_-]{11})/)
-  return urlMatch ? urlMatch[1] : trimmed
-}
 
 function formatSec(sec?: number): string {
   if (!sec || sec <= 0) return ""
@@ -134,6 +132,8 @@ export function SubmitPage() {
   const hasInitializedDurationRef = useRef(false)
 
   const [suggestedVideos, setSuggestedVideos] = useState<VideoSuggestion[]>([])
+  const [extraVideoIds, setExtraVideoIds] = useState<string[]>([])
+  const [extraVideoInput, setExtraVideoInput] = useState("")
   const [loadingSuggestions, setLoadingSuggestions] = useState(false)
   const [isDragOver, setIsDragOver] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -151,9 +151,9 @@ export function SubmitPage() {
     hasInitializedDurationRef.current = false
   }, [cleanVideoId])
 
-  // Pre-submit YouTube video suggestions based on song and artist
+  // Pre-submit YouTube video suggestions (used both to pick main video & to link alternate videos on submit)
   useEffect(() => {
-    if (!song.trim() || !artist.trim() || isValidVideoId) {
+    if (!song.trim() || !artist.trim()) {
       setSuggestedVideos([])
       return
     }
@@ -165,9 +165,10 @@ export function SubmitPage() {
         artist: artist.trim(),
         album: album.trim() || undefined,
         duration: numericDuration > 0 ? numericDuration : undefined,
+        videoId: isValidVideoId ? cleanVideoId : undefined,
       })
       if (!cancelled) {
-        setSuggestedVideos(res.suggestions.slice(0, 4))
+        setSuggestedVideos(res.suggestions.slice(0, 6))
         setLoadingSuggestions(false)
       }
     }, 500)
@@ -175,11 +176,19 @@ export function SubmitPage() {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [song, artist, album, numericDuration, isValidVideoId])
+  }, [song, artist, album, numericDuration, isValidVideoId, cleanVideoId])
 
   // Validation & format parsing
   const validation = useMemo(() => parseAndValidateLyrics(lyricsText), [lyricsText])
   const activeFormat: LyricsFormat = formatChoice === "auto" ? validation.format : formatChoice
+  const ttmlPrecheck = useMemo(() => {
+    if (activeFormat !== "ttml" || !lyricsText.trim()) return { ok: true as const }
+    return precheckUnisonTtml(lyricsForSave(lyricsText))
+  }, [activeFormat, lyricsText])
+  const alternateSuggestions = useMemo(
+    () => suggestedVideos.filter((v) => v.videoId !== cleanVideoId),
+    [suggestedVideos, cleanVideoId],
+  )
 
   // YouTube Player for synchronized playback
   const { ref: playerRef, getCurrentTime, getDuration, getPlaying, seekTo, play, pause } = useYouTubePlayer(
@@ -284,8 +293,8 @@ export function SubmitPage() {
 
   // Also auto-resolve metadata via BiniLink when a 12-character ISRC is entered
   useEffect(() => {
-    const clean = isrc.replace(/[-\s]/g, "").toUpperCase()
-    if (!/^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$/.test(clean)) return
+    const clean = normalizeIsrc(isrc)
+    if (!clean) return
     let cancelled = false
     resolveIsrcWithMetadata(clean).then((resolved) => {
       if (cancelled || !resolved) return
@@ -375,7 +384,7 @@ export function SubmitPage() {
       album: album || undefined,
       duration: numericDuration,
       format: activeFormat,
-      syncType: activeFormat === "ttml" ? "richsync" : activeFormat === "lrc" ? "linesync" : "plain",
+      syncType: compact ? detectSyncType(compact, activeFormat) : "plain",
       language,
       score: 0,
       effectiveScore: 0,
@@ -417,7 +426,34 @@ export function SubmitPage() {
       setFeedback({
         type: "error",
         title: "Please fill all required fields",
-        hint: "Song title, artist name, YouTube video/audio ID, and lyrics content are required.",
+        hint: "Song title, artist name, a valid 11-character YouTube video ID/URL, and lyrics content are required.",
+      })
+      return
+    }
+
+    if (isrc.trim() && !normalizeIsrc(isrc)) {
+      setFeedback({
+        type: "error",
+        title: "Invalid ISRC",
+        hint: ISRC_HINT,
+      })
+      return
+    }
+
+    if (validation.errors.length > 0) {
+      setFeedback({
+        type: "error",
+        title: "Lyrics validation failed",
+        hint: validation.errors[0],
+      })
+      return
+    }
+
+    if (!ttmlPrecheck.ok) {
+      setFeedback({
+        type: "error",
+        title: "TTML precheck failed",
+        hint: ttmlPrecheck.message,
       })
       return
     }
@@ -440,18 +476,34 @@ export function SubmitPage() {
         artist: artist.trim(),
         album: album.trim() || undefined,
         videoId: cleanVideoId,
-        isrc: isrc.trim() || undefined,
+        isrc: isrc.trim() ? (normalizeIsrc(isrc) ?? isrc.trim()) : undefined,
         duration: numericDuration > 0 ? numericDuration : validation.extractedMeta.duration || 180,
-        language: language || undefined,
+        language: language ? (normalizeLanguage(language) ?? language) : undefined,
         format: resolvedFormat,
         lyrics: compactLyrics,
       }
 
-      await submitLyrics(payload)
+      const created = await submitLyrics(payload)
+      const toLink = extraVideoIds.filter((vid) => vid !== cleanVideoId)
+      const unlinked: string[] = []
+      if (created?.id && toLink.length > 0) {
+        for (const extraVid of toLink) {
+          try {
+            await linkVideoToLyric(created.id, extraVid)
+          } catch {
+            unlinked.push(extraVid)
+          }
+        }
+      }
       setFeedback({
         type: "success",
         title: "Lyrics submitted successfully!",
-        hint: "Redirecting to lyrics view...",
+        hint:
+          toLink.length > 0
+            ? unlinked.length > 0
+              ? `Submitted, but ${unlinked.length} extra video(s) could not be linked (${unlinked.join(", ")}). Redirecting...`
+              : `Submitted and linked ${toLink.length} additional video${toLink.length === 1 ? "" : "s"}. Redirecting...`
+            : "Redirecting to lyrics view...",
       })
       setTimeout(() => {
         navigate(`/song/${cleanVideoId}`)
@@ -912,6 +964,153 @@ export function SubmitPage() {
               spellCheck={false}
             />
           </div>
+
+          {/* Additional Videos to Link on Submit (ported from Composer) */}
+          {isValidVideoId ? (
+            <div
+              className={cn(
+                "rounded-2xl p-3.5 space-y-2.5",
+                isNew ? glassClass : "border border-unison-border bg-unison-bg-elevated",
+              )}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-xs font-medium text-unison-text">
+                  <IconLink className="size-3.5 text-unison-text-secondary" />
+                  <span>Also link alternate YouTube videos</span>
+                  {extraVideoIds.length > 0 ? (
+                    <span className="rounded-full bg-white/10 px-1.5 py-0.5 font-mono text-[10px] text-unison-text-secondary">
+                      +{extraVideoIds.length}
+                    </span>
+                  ) : null}
+                </div>
+                <span className="text-[11px] text-unison-text-muted">Optional</span>
+              </div>
+
+              {extraVideoIds.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {extraVideoIds.map((vid) => {
+                    const match = alternateSuggestions.find((v) => v.videoId === vid)
+                    return (
+                      <span
+                        key={vid}
+                        className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.08] px-2.5 py-1 text-[11px] text-unison-text"
+                      >
+                        <span className="max-w-[160px] truncate">{match ? match.title : vid}</span>
+                        <span className="font-mono text-[10px] text-unison-text-muted">{vid}</span>
+                        <button
+                          type="button"
+                          aria-label={`Remove ${vid}`}
+                          onClick={() => setExtraVideoIds((prev) => prev.filter((id) => id !== vid))}
+                          className="cursor-pointer text-unison-text-muted hover:text-unison-text"
+                        >
+                          <IconX className="size-3" />
+                        </button>
+                      </span>
+                    )
+                  })}
+                </div>
+              ) : null}
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={extraVideoInput}
+                  onChange={(e) => setExtraVideoInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault()
+                      const id = extractVideoId(extraVideoInput)
+                      if (/^[a-zA-Z0-9_-]{11}$/.test(id) && id !== cleanVideoId && !extraVideoIds.includes(id)) {
+                        setExtraVideoIds((prev) => [...prev, id])
+                        setExtraVideoInput("")
+                      }
+                    }
+                  }}
+                  placeholder="Paste another YouTube / YT Music URL or 11-char ID"
+                  className={cn(inputClass, "font-mono")}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const id = extractVideoId(extraVideoInput)
+                    if (/^[a-zA-Z0-9_-]{11}$/.test(id) && id !== cleanVideoId && !extraVideoIds.includes(id)) {
+                      setExtraVideoIds((prev) => [...prev, id])
+                      setExtraVideoInput("")
+                    }
+                  }}
+                  className={isNew ? chipClass : "inline-flex items-center gap-1 rounded-lg border border-unison-border bg-unison-surface px-3 py-1.5 text-xs font-medium text-unison-text hover:bg-unison-bg-hover cursor-pointer shrink-0"}
+                >
+                  <IconPlus className="size-3.5" />
+                  <span>Add</span>
+                </button>
+              </div>
+
+              {alternateSuggestions.length > 0 ? (
+                <div className="space-y-1.5 pt-1">
+                  <div className="text-[11px] text-unison-text-muted">Suggested matching videos:</div>
+                  <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                    {alternateSuggestions.slice(0, 4).map((sug) => {
+                      const picked = extraVideoIds.includes(sug.videoId)
+                      const sugDur = sug.durationSeconds ?? sug.duration
+                      const lengthDiff =
+                        numericDuration > 0 && sugDur && Math.abs(sugDur - numericDuration) > 15
+                          ? Math.round(sugDur - numericDuration)
+                          : null
+                      return (
+                        <button
+                          key={sug.videoId}
+                          type="button"
+                          onClick={() =>
+                            setExtraVideoIds((prev) =>
+                              picked ? prev.filter((id) => id !== sug.videoId) : [...prev, sug.videoId],
+                            )
+                          }
+                          className={cn(
+                            "flex items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-left text-[11px] transition-colors cursor-pointer",
+                            picked
+                              ? "bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-500/35"
+                              : "bg-white/[0.04] text-unison-text-secondary hover:bg-white/[0.08]",
+                          )}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate font-medium text-unison-text">{sug.title}</div>
+                            <div className="truncate font-mono text-[10px] text-unison-text-muted">
+                              {sug.videoId}
+                              {sugDur ? ` · ${formatSec(sugDur)}` : ""}
+                              {lengthDiff !== null ? ` (${lengthDiff > 0 ? "+" : ""}${lengthDiff}s)` : ""}
+                            </div>
+                          </div>
+                          <span className="shrink-0 font-semibold">{picked ? "Linked" : "+ Link"}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {/* TTML Precheck Error */}
+          {!ttmlPrecheck.ok ? (
+            <div className="rounded-lg border border-red-500/25 bg-red-500/10 p-2.5 text-[11px] text-red-300 flex items-start gap-1.5">
+              <IconAlertCircle className="size-3.5 shrink-0 mt-0.5 text-red-400" />
+              <span>
+                <b>TTML precheck:</b> {ttmlPrecheck.message}
+              </span>
+            </div>
+          ) : null}
+
+          {/* Validation Errors */}
+          {lyricsText.trim() && validation.errors.length > 0 ? (
+            <div className="rounded-lg border border-red-500/25 bg-red-500/10 p-2.5 text-[11px] text-red-300 space-y-1">
+              {validation.errors.map((errMsg, idx) => (
+                <div key={idx} className="flex items-start gap-1.5">
+                  <IconAlertCircle className="size-3.5 shrink-0 mt-0.5 text-red-400" />
+                  <span>{errMsg}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           {/* Validation Warnings */}
           {validation.warnings.length > 0 ? (

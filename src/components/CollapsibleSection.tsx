@@ -50,13 +50,24 @@ export function CollapsibleSection({
       return
     }
     clearPending()
+    const reduced = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
     if (open) {
+      if (reduced || el.scrollHeight === 0) {
+        setHeight(0)
+        setOpen(false)
+        return
+      }
       setHeight(el.scrollHeight)
       rafRef.current = requestAnimationFrame(() => {
         rafRef.current = requestAnimationFrame(() => setHeight(0))
       })
       setOpen(false)
     } else {
+      if (reduced || el.scrollHeight === 0) {
+        setHeight("auto")
+        setOpen(true)
+        return
+      }
       setHeight(el.scrollHeight)
       setOpen(true)
       timerRef.current = window.setTimeout(() => setHeight("auto"), COLLAPSE_MS)
@@ -91,6 +102,12 @@ export function CollapsibleSection({
         id={bodyId}
         ref={wrapRef}
         inert={!open}
+        onTransitionEnd={(e) => {
+          if (e.target === e.currentTarget && open) {
+            clearPending()
+            setHeight("auto")
+          }
+        }}
         style={{ height: height === "auto" ? undefined : height, overflow: height === "auto" ? undefined : "hidden" }}
         className="transition-[height] duration-300 ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none"
       >

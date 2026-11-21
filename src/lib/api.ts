@@ -2,6 +2,8 @@ import { resolveApiPath } from "./api-url"
 import { loadStoredSession } from "./auth"
 import { hasSigningKeyFor, signPayload } from "./browser-identity"
 import { AUTHED_FETCH_ERRORS, authedFetch } from "./authedFetch"
+import { normalizeLanguage, toLyricsTranslateLang } from "./languages"
+import { normalizeIsrc } from "./lyrics-parser"
 import { IS_SPA_EXPANSION_SEED } from "./seed-flag"
 import type { ReportReason } from "./report-reasons"
 import type {
@@ -372,7 +374,15 @@ export async function submitLyrics(
   submission: import("./types").UnisonSubmission,
 ): Promise<{ id: number; created: boolean }> {
   const session = loadStoredSession()
-  const payloadRecord = submission as unknown as Record<string, unknown>
+  const normalizedSubmission: Record<string, unknown> = {
+    ...submission,
+  }
+  if (typeof submission.isrc === "string" && submission.isrc.trim()) {
+    normalizedSubmission.isrc = normalizeIsrc(submission.isrc) ?? submission.isrc.trim()
+  }
+  if (typeof submission.language === "string" && submission.language.trim()) {
+    normalizedSubmission.language = normalizeLanguage(submission.language) ?? submission.language.trim()
+  }
 
   if (session?.sessionToken) {
     const bearerRes = await fetch(resolveApiPath("/lyrics/submit"), {
@@ -382,7 +392,7 @@ export async function submitLyrics(
         Authorization: `Bearer ${session.sessionToken}`,
         "X-Key-ID": session.keyId,
       },
-      body: JSON.stringify(payloadRecord),
+      body: JSON.stringify(normalizedSubmission),
     })
 
     if (bearerRes.ok) {
@@ -392,7 +402,7 @@ export async function submitLyrics(
 
     const errJson = await bearerRes.json().catch(() => null)
     if (errJson?.code === "INVALID_SIGNED_BODY" && hasSigningKeyFor(session.keyId)) {
-      const signed = await signPayload(payloadRecord)
+      const signed = await signPayload(normalizedSubmission)
       const signedRes = await fetch(resolveApiPath("/lyrics/submit"), {
         method: "POST",
         headers: {
@@ -413,7 +423,7 @@ export async function submitLyrics(
     throw new Error(errJson?.hint ?? errJson?.error ?? `HTTP ${bearerRes.status}`)
   }
 
-  const signed = await signPayload(payloadRecord)
+  const signed = await signPayload(normalizedSubmission)
   const res = await fetch(resolveApiPath("/lyrics/submit"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -532,9 +542,11 @@ export async function translateLyrics(
 
   const payload: Record<string, unknown> = {
     lines,
-    to: targetLang,
+    to: toLyricsTranslateLang(targetLang),
   }
-  if (sourceLang && sourceLang !== "auto") payload.from = sourceLang
+  if (sourceLang && sourceLang !== "auto") {
+    payload.from = toLyricsTranslateLang(sourceLang)
+  }
   if (videoId) payload.videoId = videoId
 
   const res = await fetch(resolveApiPath("/translate"), {
@@ -630,17 +642,25 @@ export async function saveLyricRevision(
     album?: string
     isrc?: string
     language?: string
+    note?: string
   },
-): Promise<{ revision: LyricRevision }> {
+): Promise<{ revision: LyricRevision; decider?: import("./revision-types").SuggestionDecider }> {
   const session = loadStoredSession()
 
   const payload: Record<string, unknown> = {
     lyrics: input.lyrics,
     format: input.format === "auto" ? "plain" : input.format,
   }
-  if (input.language !== undefined) payload.language = input.language?.trim() || null
-  if (input.isrc !== undefined) payload.isrc = input.isrc?.trim() || null
+  if (input.language !== undefined) {
+    const rawLang = input.language?.trim()
+    payload.language = rawLang ? (normalizeLanguage(rawLang) ?? rawLang) : null
+  }
+  if (input.isrc !== undefined) {
+    const rawIsrc = input.isrc?.trim()
+    payload.isrc = rawIsrc ? (normalizeIsrc(rawIsrc) ?? rawIsrc) : null
+  }
   if (input.album !== undefined) payload.album = input.album?.trim() || null
+  if (input.note?.trim()) payload.note = input.note.trim()
 
   const headers: Record<string, string> = { "Content-Type": "application/json" }
   let bodyStr: string
@@ -764,7 +784,9 @@ export async function unlinkVideoFromLyric(lyricId: number, videoId: string): Pr
   return { videos: json.data?.videos ?? [] }
 }
 
-export async function fetchSuggestedVideos(lyricId: number): Promise<{ suggestions: VideoSuggestion[] }> {
+export async function fetchSuggestedVideos(
+  lyricId: number,
+): Promise<{ suggestions: VideoSuggestion[]; linked: VideoSuggestion[] }> {
   try {
     const session = loadStoredSession()
     const headers: Record<string, string> = { "Content-Type": "application/json" }
@@ -784,16 +806,16 @@ export async function fetchSuggestedVideos(lyricId: number): Promise<{ suggestio
       headers,
       body: bodyStr,
     })
-    if (!res.ok) return { suggestions: [] }
+    if (!res.ok) return { suggestions: [], linked: [] }
     const json = await res.json()
-    return { suggestions: json.data?.suggestions ?? [] }
+    return {
+      suggestions: json.data?.suggestions ?? [],
+      linked: json.data?.linked ?? [],
+    }
   } catch {
-    return { suggestions: [] }
+    return { suggestions: [], linked: [] }
   }
 }
-
-
-
 
 export interface LyricsLookupParams {
   v?: string
@@ -861,7 +883,13 @@ export async function fetchRevisionDetail(
   }
 }
 
-export async function previewLyricRevision(
+export interface RevisionPreviewResponse {
+  data: RevisionPreviewData | null
+  errorCode?: string
+  errorMessage?: string
+}
+
+export async function previewLyricRevisionDetailed(
   lyricId: number,
   input: {
     lyrics: string
@@ -874,14 +902,20 @@ export async function previewLyricRevision(
     isrc?: string | null
     language?: string | null
   },
-): Promise<RevisionPreviewData | null> {
+): Promise<RevisionPreviewResponse> {
   const session = loadStoredSession()
   const payload: Record<string, unknown> = {
     lyrics: input.lyrics,
     format: input.format === "auto" ? "plain" : input.format,
   }
-  if (input.language !== undefined) payload.language = input.language?.trim() || null
-  if (input.isrc !== undefined) payload.isrc = input.isrc?.trim() || null
+  if (input.language !== undefined) {
+    const rawLang = input.language?.trim()
+    payload.language = rawLang ? (normalizeLanguage(rawLang) ?? rawLang) : null
+  }
+  if (input.isrc !== undefined) {
+    const rawIsrc = input.isrc?.trim()
+    payload.isrc = rawIsrc ? (normalizeIsrc(rawIsrc) ?? rawIsrc) : null
+  }
   if (input.album !== undefined) payload.album = input.album?.trim() || null
 
   const headers: Record<string, string> = { "Content-Type": "application/json" }
@@ -902,9 +936,141 @@ export async function previewLyricRevision(
     body: bodyStr,
   })
 
-  if (!res.ok) return null
-  const json = await res.json()
-  return json.data ?? null
+  const json = await res.json().catch(() => null)
+  if (!res.ok) {
+    return {
+      data: null,
+      errorCode: typeof json?.code === "string" ? json.code : undefined,
+      errorMessage: typeof json?.hint === "string" ? json.hint : typeof json?.error === "string" ? json.error : `HTTP ${res.status}`,
+    }
+  }
+  return { data: json?.data ?? null }
+}
+
+export async function previewLyricRevision(
+  lyricId: number,
+  input: {
+    lyrics: string
+    format: LyricsFormat | "auto"
+    videoId?: string
+    duration?: number
+    song?: string
+    artist?: string
+    album?: string | null
+    isrc?: string | null
+    language?: string | null
+  },
+): Promise<RevisionPreviewData | null> {
+  const res = await previewLyricRevisionDetailed(lyricId, input)
+  return res.data
+}
+
+export async function compareLyricWithLive(
+  lyricId: number,
+  input: {
+    lyrics: string
+    format: LyricsFormat | "auto"
+    album?: string | null
+    isrc?: string | null
+    language?: string | null
+  },
+): Promise<boolean> {
+  const session = loadStoredSession()
+  const payload: Record<string, unknown> = {
+    lyrics: input.lyrics,
+    format: input.format === "auto" ? "plain" : input.format,
+  }
+  if (input.language !== undefined) {
+    const rawLang = input.language?.trim()
+    payload.language = rawLang ? (normalizeLanguage(rawLang) ?? rawLang) : null
+  }
+  if (input.isrc !== undefined) {
+    const rawIsrc = input.isrc?.trim()
+    payload.isrc = rawIsrc ? (normalizeIsrc(rawIsrc) ?? rawIsrc) : null
+  }
+  if (input.album !== undefined) payload.album = input.album?.trim() || null
+
+  const headers: Record<string, string> = { "Content-Type": "application/json" }
+  let bodyStr: string
+
+  if (session?.sessionToken) {
+    headers["Authorization"] = `Bearer ${session.sessionToken}`
+    headers["X-Key-ID"] = session.keyId
+    bodyStr = JSON.stringify(payload)
+  } else {
+    const signed = await signPayload(payload)
+    bodyStr = JSON.stringify(signed)
+  }
+
+  const res = await fetch(resolveApiPath(`/lyrics/${lyricId}/revisions/compare`), {
+    method: "POST",
+    headers,
+    body: bodyStr,
+  })
+  if (!res.ok) return false
+  const json = await res.json().catch(() => null)
+  return Boolean(json?.data?.same)
+}
+
+export async function approveLyricRevision(lyricId: number, revId: number): Promise<LyricRevision | null> {
+  const session = loadStoredSession()
+  const headers: Record<string, string> = { "Content-Type": "application/json" }
+  let bodyStr: string
+
+  if (session?.sessionToken) {
+    headers["Authorization"] = `Bearer ${session.sessionToken}`
+    headers["X-Key-ID"] = session.keyId
+    bodyStr = JSON.stringify({})
+  } else {
+    const signed = await signPayload({})
+    bodyStr = JSON.stringify(signed)
+  }
+
+  const res = await fetch(resolveApiPath(`/lyrics/${lyricId}/revisions/${revId}/approve`), {
+    method: "POST",
+    headers,
+    body: bodyStr,
+  })
+
+  if (!res.ok) {
+    const errJson = await res.json().catch(() => null)
+    throw new Error(errJson?.hint ?? errJson?.error ?? `HTTP ${res.status}`)
+  }
+  const json = await res.json().catch(() => null)
+  return json?.data?.revision ?? null
+}
+
+export async function rejectLyricRevision(
+  lyricId: number,
+  revId: number,
+  note?: string,
+): Promise<LyricRevision | null> {
+  const session = loadStoredSession()
+  const payload: Record<string, unknown> = note?.trim() ? { note: note.trim() } : {}
+  const headers: Record<string, string> = { "Content-Type": "application/json" }
+  let bodyStr: string
+
+  if (session?.sessionToken) {
+    headers["Authorization"] = `Bearer ${session.sessionToken}`
+    headers["X-Key-ID"] = session.keyId
+    bodyStr = JSON.stringify(payload)
+  } else {
+    const signed = await signPayload(payload)
+    bodyStr = JSON.stringify(signed)
+  }
+
+  const res = await fetch(resolveApiPath(`/lyrics/${lyricId}/revisions/${revId}/reject`), {
+    method: "POST",
+    headers,
+    body: bodyStr,
+  })
+
+  if (!res.ok) {
+    const errJson = await res.json().catch(() => null)
+    throw new Error(errJson?.hint ?? errJson?.error ?? `HTTP ${res.status}`)
+  }
+  const json = await res.json().catch(() => null)
+  return json?.data?.revision ?? null
 }
 
 export async function withdrawPendingRevision(lyricId: number): Promise<void> {
@@ -1067,4 +1233,3 @@ export async function fetchSongRank(videoId: string): Promise<SongRankResponse> 
 }
 
 export const fetchSearchResults = searchLyrics
-

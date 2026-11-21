@@ -5,8 +5,11 @@ import type {
   PreviewResult,
   RevisionDetail,
   RevisionDiff,
+  RevisionEditor,
   RevisionStatus,
+  RevisionSuggestion,
   RevisionSummary,
+  SuggestionDecider,
 } from "./revision-types"
 import type { PendingReason } from "./council-types"
 import type { ReportReason } from "./report-reasons"
@@ -305,6 +308,8 @@ export interface RevisionBar {
     reviewNote: string | null
   } | null
   updatedAt: number
+  suggestion?: RevisionSuggestion
+  editors?: RevisionEditor[]
 }
 
 export interface VariantFull extends VariantSummary {

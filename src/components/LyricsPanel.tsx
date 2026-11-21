@@ -14,22 +14,16 @@ import { LAYOUT_TRANSITION } from "@/lib/motion-variants"
 import type { VariantFull } from "@/lib/types"
 import { IconFocusCentered } from "@tabler/icons-react"
 import { motion } from "motion/react"
-import { useMemo, useRef, useState } from "react"
-
-const TOOL_REVEAL =
-  "opacity-0 group-focus-within/lyrics:opacity-100 group-hover/lyrics:opacity-100 [@media(hover:none)]:group-data-idle/lyrics:opacity-100"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 const TOOL_BASE = cn(
   glassClass,
   "relative inline-flex h-[30px] cursor-pointer items-center gap-[7px] rounded-[10px] pr-3 pl-2.5 [corner-shape:superellipse(1.6)] text-xs font-medium text-(--ink-2,var(--color-unison-text-secondary)) transition-[color,background-color,scale,opacity] duration-150 ease-[cubic-bezier(0.2,0,0,1)] hover:bg-white/[0.08] hover:text-unison-text after:absolute after:inset-x-0 after:-inset-y-0.5 active:not-disabled:scale-[0.96]",
 )
 
-const TOOL_CLASS = cn(TOOL_BASE, TOOL_REVEAL)
-
 const SEGMENTS_CLASS = cn(
   glassClass,
   "inline-flex rounded-[10px] p-[3px] transition-opacity duration-150 ease-out [corner-shape:superellipse(1.6)]",
-  TOOL_REVEAL,
 )
 
 const CLASSIC_HEADER_ACTION_CLASS =
@@ -63,6 +57,16 @@ export function LyricsPanel({
   const edges = useScrollEdges(pane)
   const modesRef = useRef<HTMLFieldSetElement>(null)
   const [resumeAutoscroll, setResumeAutoscroll] = useState<(() => void) | null>(null)
+  const [hoveredOrFocused, setHoveredOrFocused] = useState(false)
+  const [settling, setSettling] = useState(false)
+
+  const folded = playing && mode === "synced" && !resumeAutoscroll && !hoveredOrFocused
+
+  useEffect(() => {
+    setSettling(true)
+    const timer = window.setTimeout(() => setSettling(false), 320)
+    return () => window.clearTimeout(timer)
+  }, [folded])
 
   if (uiMode === "classic") {
     const classicTab = (value: Mode, label: string) => (
@@ -179,48 +183,73 @@ export function LyricsPanel({
   )
   const tab = (value: Mode, label: string) => segment("lyrics-mode", mode === value, label, () => setMode(value))
   return (
-    <div data-idle={playing ? undefined : ""} className="group/lyrics relative">
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-wrap items-center gap-1.5 group-focus-within/lyrics:pointer-events-auto group-hover/lyrics:pointer-events-auto [@media(hover:none)]:group-data-idle/lyrics:pointer-events-auto">
-        <fieldset ref={modesRef} className={SEGMENTS_CLASS}>
-          <legend className="sr-only">Lyrics display mode</legend>
-          {tab("synced", "Synced")}
-          {tab("raw", "Raw")}
-        </fieldset>
-        {mode === "synced" && languages.length > 1 ? (
-          <fieldset className={cn(SEGMENTS_CLASS, "t-reveal")}>
-            <legend className="sr-only">Translation language</legend>
-            {languages.map((code) =>
-              segment("lyrics-language", code === lang, languageName(code), () => setPickedLang(code)),
-            )}
-          </fieldset>
-        ) : null}
-        <button
-          type="button"
-          inert={!resumeAutoscroll}
-          onClick={() => {
-            resumeAutoscroll?.()
-            modesRef.current?.querySelector<HTMLButtonElement>("[aria-pressed=true]")?.focus()
-          }}
-          className={cn(
-            TOOL_BASE,
-            "pointer-events-auto absolute top-0 left-1/2 -translate-x-1/2 max-sm:right-0 max-sm:left-auto max-sm:translate-x-0",
-            !resumeAutoscroll && "pointer-events-none opacity-0",
-          )}
-        >
-          <IconFocusCentered className="size-4" />
-          Resume autoscroll
-        </button>
-        {variant ? (
-          <div className={cn("ml-auto flex items-center gap-1.5", resumeAutoscroll && "max-sm:hidden")}>
-            <CopyButton text={variant.lyrics} className={TOOL_CLASS} iconClassName="size-4" radius={10} withText />
-            <DownloadButton
-              onClick={() => downloadTextFile(lyricsFilename(variant), variant.lyrics, MIME_BY_FORMAT[variant.format])}
-              className={TOOL_CLASS}
-              iconClassName="size-4"
-              withText
-            />
+    <div
+      data-idle={playing ? undefined : ""}
+      onPointerEnter={(e) => {
+        if (e.pointerType === "mouse") setHoveredOrFocused(true)
+      }}
+      onPointerLeave={(e) => {
+        if (e.pointerType === "mouse") setHoveredOrFocused(false)
+      }}
+      onFocusCapture={() => setHoveredOrFocused(true)}
+      onBlurCapture={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+          setHoveredOrFocused(false)
+        }
+      }}
+      className="group/lyrics relative"
+    >
+      <div
+        inert={folded || undefined}
+        className={cn(
+          "grid transition-[grid-template-rows,opacity] duration-300 ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none",
+          folded ? "pointer-events-none grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100",
+        )}
+      >
+        <div className={cn("min-h-0", (folded || settling) && "overflow-hidden")}>
+          <div className="relative flex flex-wrap items-center gap-1.5 pb-3">
+            <fieldset ref={modesRef} className={SEGMENTS_CLASS}>
+              <legend className="sr-only">Lyrics display mode</legend>
+              {tab("synced", "Synced")}
+              {tab("raw", "Raw")}
+            </fieldset>
+            {mode === "synced" && languages.length > 1 ? (
+              <fieldset className={cn(SEGMENTS_CLASS, "t-reveal")}>
+                <legend className="sr-only">Translation language</legend>
+                {languages.map((code) =>
+                  segment("lyrics-language", code === lang, languageName(code), () => setPickedLang(code)),
+                )}
+              </fieldset>
+            ) : null}
+            <button
+              type="button"
+              inert={!resumeAutoscroll}
+              onClick={() => {
+                resumeAutoscroll?.()
+                modesRef.current?.querySelector<HTMLButtonElement>("[aria-pressed=true]")?.focus()
+              }}
+              className={cn(
+                TOOL_BASE,
+                "pointer-events-auto absolute top-0 left-1/2 -translate-x-1/2 max-sm:right-0 max-sm:left-auto max-sm:translate-x-0",
+                !resumeAutoscroll && "pointer-events-none opacity-0",
+              )}
+            >
+              <IconFocusCentered className="size-4" />
+              Resume autoscroll
+            </button>
+            {variant ? (
+              <div className={cn("ml-auto flex items-center gap-1.5", resumeAutoscroll && "max-sm:hidden")}>
+                <CopyButton text={variant.lyrics} className={TOOL_BASE} iconClassName="size-4" radius={10} withText />
+                <DownloadButton
+                  onClick={() => downloadTextFile(lyricsFilename(variant), variant.lyrics, MIME_BY_FORMAT[variant.format])}
+                  className={TOOL_BASE}
+                  iconClassName="size-4"
+                  withText
+                />
+              </div>
+            ) : null}
           </div>
-        ) : null}
+        </div>
       </div>
       <div
         key={`${mode}:${variant ? "ready" : "loading"}`}

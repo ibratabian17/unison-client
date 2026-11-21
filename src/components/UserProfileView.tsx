@@ -22,6 +22,7 @@ import { PROFILE_STAGE } from "@/components/profile/layout"
 import { glassActionClass, glassClass } from "@/components/ui"
 import { useUiMode } from "@/context/UiModeContext"
 import { setAsyncData, useAsyncData } from "@/hooks/useAsyncData"
+import { type DiscordLink, useDiscordLink } from "@/hooks/useDiscordLink"
 import { useProfileArt } from "@/hooks/useProfileArt"
 import { fetchUserBadges, fetchUserRank } from "@/lib/api"
 import { cn } from "@/lib/cn"
@@ -99,6 +100,7 @@ function OwnerBlock({
   ref,
   gamification,
   catalogue,
+  discord,
   onGamificationChange,
   onPreview,
   showDiscord,
@@ -107,6 +109,7 @@ function OwnerBlock({
   ref: Ref<HTMLElement>
   gamification: UserGamification | null
   catalogue: BadgeCatalogue | null
+  discord: DiscordLink
   onGamificationChange: (updated: UserGamification) => void
   onPreview: () => void
   showDiscord: boolean
@@ -125,7 +128,7 @@ function OwnerBlock({
         {gamification && catalogue ? (
           <FeaturedBadgeEditor gamification={gamification} catalogue={catalogue} onSaved={onGamificationChange} />
         ) : null}
-        <OwnerControls showDiscord={showDiscord} onProfileChange={onProfileChange} />
+        <OwnerControls showDiscord={showDiscord} discord={discord} onProfileChange={onProfileChange} />
       </div>
     </section>
   )
@@ -134,12 +137,14 @@ function OwnerBlock({
 function ClassicOwnerBlock({
   gamification,
   catalogue,
+  discord,
   onGamificationChange,
   showDiscord,
   onProfileChange,
 }: {
   gamification: UserGamification | null
   catalogue: BadgeCatalogue | null
+  discord: DiscordLink
   onGamificationChange: (updated: UserGamification) => void
   showDiscord: boolean
   onProfileChange: () => Promise<void>
@@ -179,7 +184,7 @@ function ClassicOwnerBlock({
       {gamification && catalogue ? (
         <FeaturedBadgeEditor gamification={gamification} catalogue={catalogue} onSaved={onGamificationChange} />
       ) : null}
-      <OwnerControls showDiscord={showDiscord} onProfileChange={onProfileChange} />
+      <OwnerControls showDiscord={showDiscord} discord={discord} onProfileChange={onProfileChange} />
     </div>
   )
 }
@@ -205,6 +210,7 @@ function ProfileBody({
   const isClassic = uiMode === "classic"
   const art = useProfileArt(rank)
   usePageArt(art.wash)
+  const discord = useDiscordLink({ enabled: isOwner })
   const [preview, setPreview] = useState(false)
   const editRef = useRef<HTMLElement>(null)
   const pickerRef = useRef<HTMLDivElement>(null)
@@ -231,6 +237,7 @@ function ProfileBody({
           <ClassicOwnerBlock
             gamification={gamification}
             catalogue={catalogue}
+            discord={discord}
             onGamificationChange={onGamificationChange}
             showDiscord={rank.discord !== undefined}
             onProfileChange={onProfileChange}
@@ -291,7 +298,14 @@ function ProfileBody({
             }
           />
         </div>
-        <ProfileSide keyId={keyId} rank={rank} gamification={gamification} owner={owner} onEditProfile={editProfile} />
+        <ProfileSide
+          keyId={keyId}
+          rank={rank}
+          gamification={gamification}
+          owner={owner}
+          discord={discord}
+          onEditProfile={editProfile}
+        />
       </section>
 
       <div className="flex flex-col gap-14 pb-[108px]">
@@ -309,6 +323,7 @@ function ProfileBody({
             ref={editRef}
             gamification={gamification}
             catalogue={catalogue}
+            discord={discord}
             onGamificationChange={onGamificationChange}
             onPreview={() => {
               setBannerAnchor(null)

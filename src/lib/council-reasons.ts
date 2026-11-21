@@ -7,6 +7,7 @@ const LABELS: Record<PendingReason, string> = {
   flagged: "Flagged by Jev",
   large_text_drift: "Large text change",
   large_timing_drift: "Large timing change",
+  suggested: "Suggested edit",
 }
 
 export function reasonLabel(reason: PendingReason): string {
@@ -23,6 +24,8 @@ export function reasonWhy(reason: PendingReason, thresholds: EditThresholds): st
       return `The words changed more than the ${pct(thresholds.textDrift)} threshold.`
     case "large_timing_drift":
       return `Line timings moved more than the ${pct(thresholds.timingDrift)} threshold.`
+    case "suggested":
+      return "Another contributor suggested an edit to this lyric."
   }
 }
 
@@ -36,5 +39,7 @@ export function reasonMetric(edit: EditItem): string {
       return `${pct(edit.textDrift)} text`
     case "large_timing_drift":
       return `${pct(edit.timingDrift)} timing`
+    case "suggested":
+      return "suggested"
   }
 }

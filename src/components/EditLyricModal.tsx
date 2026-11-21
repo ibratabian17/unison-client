@@ -23,18 +23,35 @@ import {
   deleteLyrics,
   fetchLinkedVideos,
   linkVideoToLyric,
-  previewLyricRevision,
+  previewLyricRevisionDetailed,
   saveLyricRevision,
   submitLyrics,
   withdrawPendingRevision,
   type RevisionPreviewData,
 } from "@/lib/api"
+import { precheckUnisonTtml } from "@/lib/ttml-precheck"
+import {
+  NEEDS_OWN_LYRIC,
+  NOTE_PLACEHOLDER,
+  noteLabel,
+  ONE_ALREADY_WAITING,
+  SEND_SUGGESTION_LABEL,
+  sentDetail,
+  suggestTitle,
+  WAITING_TITLE,
+  waitingMeta,
+  whoDecidesText,
+  WITHDRAW_SUGGESTION_LABEL,
+  YOUR_NOTE_LABEL,
+} from "@/lib/unison-suggest-copy"
 import { cn } from "@/lib/cn"
 import { plural } from "@/lib/format"
-import { detectLyricsLanguage, getLanguageOptions } from "@/lib/languages"
+import { detectLyricsLanguage, getLanguageOptions, normalizeLanguage } from "@/lib/languages"
 import {
   detectFormat,
+  ISRC_HINT,
   lyricsForSave,
+  normalizeIsrc,
   parseAndValidateLyrics,
   readableTtml,
 } from "@/lib/lyrics-parser"
@@ -43,6 +60,8 @@ import type { FieldCheck, LyricsFormat, VariantFull } from "@/lib/types"
 
 interface EditLyricModalProps {
   variant: VariantFull
+  mode?: "owner" | "suggest"
+  currentKeyId?: string
   isOpen: boolean
   onClose: () => void
   onSaved: (newVariantId?: number) => void
@@ -71,6 +90,7 @@ const REASON_LABELS: Record<string, string> = {
   text_drift: "Large text change",
   timing_drift: "Large timing change",
   jev_flagged: "Flagged for review",
+  suggested: "Suggested edit",
 }
 
 const pct = (value: number) => `${Math.round(value * 100)}%`
@@ -131,7 +151,16 @@ function DriftMeter({
   )
 }
 
-export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricModalProps) {
+export function EditLyricModal({
+  variant,
+  mode = "owner",
+  currentKeyId,
+  isOpen,
+  onClose,
+  onSaved,
+}: EditLyricModalProps) {
+  const isSuggest = mode === "suggest"
+  const ownerName = variant.submitter?.displayName ?? null
   const { uiMode } = useUiMode()
   const isNew = uiMode === "new"
   const fieldClass = isNew ? glassFieldClass : solidFieldClass
@@ -153,6 +182,8 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
   const [confirmReplaceOpen, setConfirmReplaceOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [previewData, setPreviewData] = useState<RevisionPreviewData | null>(null)
+  const [previewErrorCode, setPreviewErrorCode] = useState<string | null>(null)
+  const [note, setNote] = useState("")
   const [previewLoading, setPreviewLoading] = useState(false)
   const [withdrawing, setWithdrawing] = useState(false)
   const [confirmWithdraw, setConfirmWithdraw] = useState(false)
@@ -161,8 +192,8 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
   const trimmedSong = song.trim()
   const trimmedArtist = artist.trim()
   const trimmedAlbum = album.trim() || null
-  const trimmedIsrc = isrc.trim() || null
-  const trimmedLang = language || null
+  const trimmedIsrc = isrc.trim() ? (normalizeIsrc(isrc) ?? isrc.trim()) : null
+  const trimmedLang = language ? (normalizeLanguage(language) ?? language) : null
 
   const languages = useMemo(() => getLanguageOptions(), [])
   const parsedLyrics = useMemo(() => parseAndValidateLyrics(lyrics), [lyrics])
@@ -170,6 +201,11 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
     () => resolveActualFormat(lyrics, variant.format ?? "lrc"),
     [lyrics, variant.format],
   )
+  const ttmlPrecheck = useMemo(() => {
+    if (format !== "ttml") return { ok: true as const }
+    const compact = lyricsForSave(lyrics, variant.lyrics)
+    return precheckUnisonTtml(compact)
+  }, [format, lyrics, variant.lyrics])
   const previewVariant = useMemo<VariantFull>(
     () => ({
       ...variant,
@@ -214,6 +250,8 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
     setActiveTab("editor")
     setError(null)
     setPreviewData(null)
+    setPreviewErrorCode(null)
+    setNote("")
     setConfirmWithdraw(false)
     setConfirmReplaceOpen(false)
   }, [
@@ -243,7 +281,7 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
     const effectiveFormat = resolveActualFormat(compactContent, format)
     const timer = window.setTimeout(async () => {
       setPreviewLoading(true)
-      const data = await previewLyricRevision(variant.id, {
+      const res = await previewLyricRevisionDetailed(variant.id, {
         lyrics: compactContent,
         format: effectiveFormat,
         song: song.trim() || variant.song,
@@ -253,7 +291,8 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
         language: language || null,
       })
       if (!cancelled) {
-        setPreviewData(data)
+        setPreviewData(res.data)
+        setPreviewErrorCode(res.errorCode ?? null)
         setPreviewLoading(false)
       }
     }, 350)
@@ -296,7 +335,20 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
     reader.readAsText(file)
   }
 
-  const titleOrArtistChanged = trimmedSong !== variant.song || trimmedArtist !== variant.artist
+  const titleOrArtistChanged = !isSuggest && (trimmedSong !== variant.song || trimmedArtist !== variant.artist)
+  const ownWaitingSuggestion =
+    isSuggest &&
+    Boolean(currentKeyId) &&
+    variant.revision?.suggestion?.authorKeyId === currentKeyId
+      ? variant.revision?.suggestion
+      : null
+  const suggestBlocker = isSuggest
+    ? previewErrorCode === "SUGGEST_NEEDS_LYRIC"
+      ? NEEDS_OWN_LYRIC
+      : !ownWaitingSuggestion && (variant.revision?.pending || variant.revision?.suggestion)
+        ? ONE_ALREADY_WAITING
+        : null
+    : null
   const revisionFieldsChanged =
     !previewData?.noChanges ||
     trimmedAlbum !== (variant.album ?? null) ||
@@ -317,6 +369,18 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
       setError("Lyrics content cannot be empty.")
       return
     }
+    if (isrc.trim() && !normalizeIsrc(isrc)) {
+      setError(ISRC_HINT)
+      return
+    }
+    if (parsedLyrics.errors.length > 0) {
+      setError(parsedLyrics.errors[0])
+      return
+    }
+    if (!ttmlPrecheck.ok) {
+      setError(ttmlPrecheck.message)
+      return
+    }
 
     try {
       setSaving(true)
@@ -332,9 +396,9 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
             ? parsed.extractedMeta.duration
             : 180
 
-      // Case 1: Title and Artist did not change -> standard revision save
+      // Case 1: Title and Artist did not change (or community suggestion) -> standard revision save
       if (!titleOrArtistChanged) {
-        await saveLyricRevision(variant.id, {
+        const saved = await saveLyricRevision(variant.id, {
           videoId: variant.videoId,
           duration: resolvedDuration,
           song: trimmedSong,
@@ -344,14 +408,27 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
           isrc: trimmedIsrc ?? undefined,
           format: effectiveFormat,
           lyrics: compactContent,
+          note: isSuggest && note.trim() ? note.trim() : undefined,
         })
-        pushToast({
-          kind: "success",
-          message:
-            previewData && !previewData.outcome?.goesLive && !previewData.noChanges
-              ? "Submitted revision for Council review"
-              : "Saved lyric revision",
-        })
+        if (isSuggest) {
+          const detail = sentDetail(
+            saved.decider ?? previewData?.decider,
+            ownerName,
+            previewData?.ownerDecisionSec ?? null,
+          )
+          pushToast({
+            kind: "success",
+            message: detail ? `Suggestion sent. ${detail}` : "Suggestion sent for review",
+          })
+        } else {
+          pushToast({
+            kind: "success",
+            message:
+              previewData && !previewData.outcome?.goesLive && !previewData.noChanges
+                ? "Submitted revision for Council review"
+                : "Saved lyric revision",
+          })
+        }
         onSaved()
         onClose()
         return
@@ -463,6 +540,18 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
       setError("Lyrics content cannot be empty.")
       return
     }
+    if (isrc.trim() && !normalizeIsrc(isrc)) {
+      setError(ISRC_HINT)
+      return
+    }
+    if (parsedLyrics.errors.length > 0) {
+      setError(parsedLyrics.errors[0])
+      return
+    }
+    if (!ttmlPrecheck.ok) {
+      setError(ttmlPrecheck.message)
+      return
+    }
     if (titleOrArtistChanged && role === null) {
       setConfirmReplaceOpen(true)
       return
@@ -493,7 +582,7 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
 
   const changedCount = diffRows.filter((r) => r.kind !== "same" && r.kind !== "gap").length
   const badChecks = (previewData?.checks ?? []).filter((c) => c.status !== "ok")
-  const hasBadCheck = (previewData?.checks ?? []).some((c) => c.status === "bad")
+  const hasBadCheck = (previewData?.checks ?? []).some((c) => c.status === "bad") || parsedLyrics.errors.length > 0 || !ttmlPrecheck.ok
   const rateLimit = previewData?.rateLimit
   const remainingEdits = rateLimit
     ? Math.max(0, Math.min(rateLimit.lyricRemaining, rateLimit.userRemaining))
@@ -512,7 +601,7 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
       <CouncilOverlay
         open={isOpen}
         onOpenChange={(val) => (val ? null : onClose())}
-        label="Edit lyrics"
+        label={isSuggest ? suggestTitle(ownerName) : "Edit lyrics"}
         className="top-1/2 flex max-h-[90vh] w-[min(780px,calc(100vw-32px))] -translate-y-1/2 flex-col"
       >
         <div className={cn("flex items-start justify-between gap-4 border-b px-6 py-5", dividerClass)}>
@@ -526,7 +615,7 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="truncate text-base font-semibold text-unison-text">
-                  {trimmedSong || variant.song}
+                  {isSuggest ? suggestTitle(ownerName) : trimmedSong || variant.song}
                 </h2>
                 <Chip>Rev {liveRevNo}</Chip>
                 <Chip>{format.toUpperCase()}</Chip>
@@ -592,6 +681,52 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
               </Callout>
             ) : null}
 
+            {!ttmlPrecheck.ok ? (
+              <Callout tone="warn" icon={<IconAlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" stroke={1.5} />}>
+                <b>TTML precheck failed:</b> {ttmlPrecheck.message}
+              </Callout>
+            ) : null}
+
+            {ownWaitingSuggestion ? (
+              <Callout tone="warn" icon={<IconAlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" stroke={1.5} />}>
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <b>{WAITING_TITLE}</b>
+                    <span className="text-[11px] text-unison-text-muted">
+                      {waitingMeta(ownWaitingSuggestion.revNo, ownWaitingSuggestion.createdAt)}
+                    </span>
+                  </div>
+                  {ownWaitingSuggestion.note ? (
+                    <p className="text-xs text-unison-text-secondary">
+                      <span className="font-medium text-unison-text-muted">{YOUR_NOTE_LABEL}: </span>
+                      {ownWaitingSuggestion.note}
+                    </p>
+                  ) : null}
+                  {whoDecidesText(
+                    ownWaitingSuggestion.decider,
+                    ownerName,
+                    ownWaitingSuggestion.councilDecidesAt
+                      ? Math.max(0, ownWaitingSuggestion.councilDecidesAt - Math.max(Date.now() / 1000, ownWaitingSuggestion.createdAt))
+                      : null,
+                  ) ? (
+                    <p className="text-xs text-unison-text-muted">
+                      {whoDecidesText(
+                        ownWaitingSuggestion.decider,
+                        ownerName,
+                        ownWaitingSuggestion.councilDecidesAt
+                          ? Math.max(0, ownWaitingSuggestion.councilDecidesAt - Math.max(Date.now() / 1000, ownWaitingSuggestion.createdAt))
+                          : null,
+                      )}
+                    </p>
+                  ) : null}
+                </div>
+              </Callout>
+            ) : suggestBlocker ? (
+              <Callout tone="warn" icon={<IconAlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" stroke={1.5} />}>
+                {suggestBlocker}
+              </Callout>
+            ) : null}
+
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1">
                 <label className={labelClass}>Song title</label>
@@ -601,7 +736,7 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
                   value={song}
                   onChange={(e) => setSong(e.target.value)}
                   placeholder="Song title"
-                  disabled={saving}
+                  disabled={saving || isSuggest}
                   autoComplete="off"
                   className={fieldClass}
                 />
@@ -625,7 +760,7 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
                   value={artist}
                   onChange={(e) => setArtist(e.target.value)}
                   placeholder="Artist"
-                  disabled={saving}
+                  disabled={saving || isSuggest}
                   autoComplete="off"
                   className={fieldClass}
                 />
@@ -833,6 +968,19 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
               )}
             </div>
 
+            {parsedLyrics.errors.length > 0 && lyrics.trim() ? (
+              <Callout
+                tone="warn"
+                icon={<IconAlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" stroke={1.5} />}
+              >
+                <ul className="space-y-1">
+                  {parsedLyrics.errors.map((errMsg, idx) => (
+                    <li key={idx}>{errMsg}</li>
+                  ))}
+                </ul>
+              </Callout>
+            ) : null}
+
             {previewData ? (
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -968,10 +1116,32 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
                 ) : null}
               </div>
             ) : null}
+
+            {isSuggest && !ownWaitingSuggestion ? (
+              <div className="space-y-1.5">
+                <div className="flex items-baseline justify-between gap-2">
+                  <label className={labelClass}>{noteLabel(ownerName, previewData?.decider)}</label>
+                  {previewData?.noteMaxLength ? (
+                    <span className="font-mono text-[11px] text-unison-text-muted tabular-nums">
+                      {note.length}/{previewData.noteMaxLength}
+                    </span>
+                  ) : null}
+                </div>
+                <textarea
+                  value={note}
+                  rows={2}
+                  maxLength={previewData?.noteMaxLength ?? 500}
+                  disabled={saving || Boolean(suggestBlocker)}
+                  placeholder={NOTE_PLACEHOLDER}
+                  onChange={(e) => setNote(e.target.value)}
+                  className={cn(fieldClass, "resize-none leading-relaxed")}
+                />
+              </div>
+            ) : null}
           </div>
 
           <div className={cn("flex items-center justify-between gap-3 border-t px-6 py-4", dividerClass)}>
-            {variant.revision?.pending ? (
+            {(!isSuggest && variant.revision?.pending) || ownWaitingSuggestion ? (
               <button
                 type="button"
                 disabled={withdrawing}
@@ -990,17 +1160,24 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
               >
                 {withdrawing
                   ? "Withdrawing…"
-                  : confirmWithdraw
-                    ? `Confirm withdraw Rev ${variant.revision.pending.revNo}`
-                    : `Withdraw pending Rev ${variant.revision.pending.revNo}`}
+                  : ownWaitingSuggestion
+                    ? confirmWithdraw
+                      ? "Confirm withdraw suggestion"
+                      : WITHDRAW_SUGGESTION_LABEL
+                    : confirmWithdraw
+                      ? `Confirm withdraw Rev ${variant.revision?.pending?.revNo}`
+                      : `Withdraw pending Rev ${variant.revision?.pending?.revNo}`}
               </button>
             ) : (
               <span className="text-xs text-unison-text-muted">
-                {titleOrArtistChanged
-                  ? role !== null
-                    ? "Title & artist changes will be proposed to the Council."
-                    : "Renaming title or artist without Council replaces this variant."
-                  : "Edit song title, artist, metadata, or synced lyrics."}
+                {isSuggest
+                  ? (whoDecidesText(previewData?.decider, ownerName, previewData?.ownerDecisionSec ?? null) ??
+                    "Suggest improvements to lyrics, timing, album, language, or ISRC.")
+                  : titleOrArtistChanged
+                    ? role !== null
+                      ? "Title & artist changes will be proposed to the Council."
+                      : "Renaming title or artist without Council replaces this variant."
+                    : "Edit song title, artist, metadata, or synced lyrics."}
               </span>
             )}
 
@@ -1012,32 +1189,39 @@ export function EditLyricModal({ variant, isOpen, onClose, onSaved }: EditLyricM
               >
                 Cancel
               </button>
-              <button
-                type="submit"
-                disabled={
-                  saving ||
-                  hasBadCheck ||
-                  (!titleOrArtistChanged && remainingEdits === 0) ||
-                  !hasAnyChange ||
-                  !trimmedSong ||
-                  !trimmedArtist
-                }
-                className={
-                  isNew
-                    ? cn(raisedChipClass, "disabled:cursor-not-allowed disabled:opacity-45")
-                    : buttonClass("primary", "sm")
-                }
-              >
-                {saving
-                  ? "Saving…"
-                  : titleOrArtistChanged && role !== null && !revisionFieldsChanged
-                    ? "Propose details"
-                    : titleOrArtistChanged && role === null
-                      ? "Replace & rename…"
-                      : previewData && !previewData.outcome?.goesLive && !previewData.noChanges && !titleOrArtistChanged
-                        ? "Submit for review"
-                        : "Save revision"}
-              </button>
+              {!ownWaitingSuggestion ? (
+                <button
+                  type="submit"
+                  disabled={
+                    saving ||
+                    hasBadCheck ||
+                    Boolean(suggestBlocker) ||
+                    (!titleOrArtistChanged && remainingEdits === 0) ||
+                    !hasAnyChange ||
+                    !trimmedSong ||
+                    !trimmedArtist
+                  }
+                  className={
+                    isNew
+                      ? cn(raisedChipClass, "disabled:cursor-not-allowed disabled:opacity-45")
+                      : buttonClass("primary", "sm")
+                  }
+                >
+                  {saving
+                    ? isSuggest
+                      ? "Sending…"
+                      : "Saving…"
+                    : isSuggest
+                      ? SEND_SUGGESTION_LABEL
+                      : titleOrArtistChanged && role !== null && !revisionFieldsChanged
+                        ? "Propose details"
+                        : titleOrArtistChanged && role === null
+                          ? "Replace & rename…"
+                          : previewData && !previewData.outcome?.goesLive && !previewData.noChanges && !titleOrArtistChanged
+                            ? "Submit for review"
+                            : "Save revision"}
+                </button>
+              ) : null}
             </div>
           </div>
         </form>

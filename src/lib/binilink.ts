@@ -1,3 +1,6 @@
+import { normalizeIsrc } from "./lyrics-parser"
+import { videoIdFromInput } from "./youtube-music"
+
 export const BINILINK_BASE_URL = "https://link.binimum.org"
 const TOKEN_ENDPOINT = "https://am-mint.binimum.org/token"
 
@@ -76,24 +79,47 @@ interface MintTokenResponse {
   cache_ttl_seconds?: number
 }
 
-interface CatalogSongItem {
-  id: string
-  attributes: {
-    name: string
-    artistName: string
-    albumName?: string
-    isrc?: string
-    durationInMillis?: number
-    releaseDate?: string
-    artwork?: { url: string }
+// Upstream BiniLink rate-limit pause/probe backoff & in-flight deduplication (#181, #182)
+const INPUT_ERRORS = new Set([400, 404, 413])
+const DEFAULT_PAUSE_SEC = 15
+const MAX_PAUSE_SEC = 120
+
+let pausedUntil = 0
+let probing = false
+
+export function pauseRemainingSec(): number {
+  return Math.max(0, Math.ceil((pausedUntil - Date.now()) / 1000))
+}
+
+function pause(retryAfter: string | null): void {
+  const requested = Number(retryAfter)
+  const seconds =
+    Number.isFinite(requested) && requested > 0
+      ? Math.min(requested, MAX_PAUSE_SEC)
+      : DEFAULT_PAUSE_SEC
+  pausedUntil = Math.max(pausedUntil, Date.now() + seconds * 1000)
+}
+
+function sharedInFlight<T>(): (key: string, run: () => Promise<T>) => Promise<T> {
+  const pending = new Map<string, Promise<T>>()
+  return (key, run) => {
+    const existing = pending.get(key)
+    if (existing) return existing
+    const promise = run().finally(() => {
+      pending.delete(key)
+    })
+    pending.set(key, promise)
+    return promise
   }
 }
+
+const inflightJson = sharedInFlight<unknown>()
 
 let cachedToken: string | null = null
 let tokenExpiresAt = 0
 let tokenPromise: Promise<string | null> | null = null
 
-async function getCatalogSearchToken(): Promise<string | null> {
+export async function getCatalogSearchToken(): Promise<string | null> {
   const now = Date.now()
   if (cachedToken && tokenExpiresAt > now) return cachedToken
   if (tokenPromise) return tokenPromise
@@ -137,17 +163,36 @@ function formatArtists(artists?: BiniLinkArtist[]): string {
   return names.join(", ")
 }
 
-async function fetchBiniLinkJson<T>(path: string, signal?: AbortSignal): Promise<T | null> {
+async function sendBiniLinkJson<T>(path: string, signal?: AbortSignal): Promise<T | null> {
+  if (Date.now() < pausedUntil) return null
+  const probe = pausedUntil > 0
+  if (probe && probing) return null
+  probing = probe
   try {
     const res = await fetch(`${BINILINK_BASE_URL}${path}`, {
       headers: { Accept: "application/json" },
       signal: signal ?? AbortSignal.timeout(8000),
     })
-    if (!res.ok) return null
-    return (await res.json()) as T
-  } catch {
+    if (res.ok) {
+      const parsed = (await res.json()) as T
+      if (probe) pausedUntil = 0
+      return parsed
+    }
+    if (!INPUT_ERRORS.has(res.status)) pause(res.headers.get("retry-after"))
     return null
+  } catch (err) {
+    if (!(err instanceof DOMException && err.name === "AbortError")) {
+      pause(null)
+    }
+    return null
+  } finally {
+    if (probe) probing = false
   }
+}
+
+async function fetchBiniLinkJson<T>(path: string, signal?: AbortSignal): Promise<T | null> {
+  if (signal) return sendBiniLinkJson<T>(path, signal)
+  return (await inflightJson(path, () => sendBiniLinkJson<T>(path))) as T | null
 }
 
 export async function getBiniLinkTrackMetadata(
@@ -176,8 +221,8 @@ export async function lookupBiniLinkIsrc(
   isrc: string,
   signal?: AbortSignal,
 ): Promise<BiniLinkIndividualMapping | null> {
-  const clean = isrc.replace(/[^A-Za-z0-9]/g, "").toUpperCase()
-  if (!/^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$/.test(clean)) return null
+  const clean = normalizeIsrc(isrc)
+  if (!clean) return null
   return fetchBiniLinkJson<BiniLinkIndividualMapping>(
     `/api/v1/isrc/${encodeURIComponent(clean)}`,
     signal,
@@ -192,7 +237,7 @@ function buildResolvedTrack(
 ): BiniLinkResolvedTrack | null {
   const title = meta?.title?.trim() || ""
   const artist = formatArtists(meta?.artists)
-  const isrc = mapping?.isrc
+  const isrc = mapping?.isrc ? (normalizeIsrc(mapping.isrc) ?? undefined) : undefined
   if (!title && !isrc) return null
 
   const duration =
@@ -200,16 +245,19 @@ function buildResolvedTrack(
       ? Math.round(meta.duration_ms / 1000)
       : undefined
 
+  const rawYt = mapping?.youtube ?? (meta?.service === "youtube" ? meta.id : undefined)
+  const youtubeId = rawYt ? (videoIdFromInput(rawYt) ?? undefined) : undefined
+
   return {
     id: isrc || meta?.id || fallbackId,
     song: title,
     artist,
     album: meta?.album?.title?.trim() || undefined,
     duration,
-    isrc: isrc || undefined,
+    isrc,
     releaseDate: meta?.release_date || meta?.album?.release_date || undefined,
     artworkUrl: formatBiniLinkArtwork(meta?.album?.artwork_url, 160),
-    youtubeId: mapping?.youtube ?? (meta?.service === "youtube" ? meta.id : undefined),
+    youtubeId,
     spotifyId: mapping?.spotify ?? (meta?.service === "spotify" ? meta.id : undefined),
     appleMusicId:
       mapping?.apple_music ??
@@ -237,7 +285,7 @@ export async function searchSongsViaBiniLink(
       artist: attr.artistName,
       album: attr.albumName,
       duration: attr.durationInMillis ? Math.round(attr.durationInMillis / 1000) : undefined,
-      isrc: attr.isrc,
+      isrc: attr.isrc ? (normalizeIsrc(attr.isrc) ?? attr.isrc) : undefined,
       releaseDate: attr.releaseDate,
       artworkUrl: formatBiniLinkArtwork(attr.artwork?.url, 160),
       appleMusicId: item.id,
@@ -304,8 +352,9 @@ export async function matchYouTubeViaBiniLink(
   fallbackQuery?: string,
   signal?: AbortSignal,
 ): Promise<BiniLinkResolvedTrack | null> {
-  if (/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
-    const meta = await getBiniLinkTrackMetadata("youtube", videoId, signal)
+  const cleanVid = videoIdFromInput(videoId)
+  if (cleanVid) {
+    const meta = await getBiniLinkTrackMetadata("youtube", cleanVid, signal)
     if (meta) {
       let mapping: BiniLinkMapping | null = null
       if (meta.apple_music_id) {
@@ -313,9 +362,9 @@ export async function matchYouTubeViaBiniLink(
       }
       const direct = buildResolvedTrack(
         meta,
-        mapping ?? { youtube: videoId, apple_music: meta.apple_music_id },
+        mapping ?? { youtube: cleanVid, apple_music: meta.apple_music_id },
         "BiniLink",
-        videoId,
+        cleanVid,
       )
       if (direct) return direct
     }
@@ -335,7 +384,8 @@ export async function resolveIsrcWithMetadata(
   isrcInput: string,
   signal?: AbortSignal,
 ): Promise<BiniLinkResolvedTrack | null> {
-  const clean = isrcInput.replace(/[^A-Za-z0-9]/g, "").toUpperCase()
+  const clean = normalizeIsrc(isrcInput)
+  if (!clean) return null
   const data = await lookupBiniLinkIsrc(clean, signal)
   if (!data) return null
 
@@ -420,23 +470,28 @@ export function parseBiniLinkInput(raw: string): ParsedBiniLinkQuery | null {
   const tidalUrl = trimmed.match(/tidal\.com\/(?:browse\/)?track\/([0-9]{1,128})/i)
   if (tidalUrl) return { kind: "provider", service: "tidal", id: tidalUrl[1] }
 
-  const ytUrl = trimmed.match(/(?:v=|\/embed\/|\.be\/|\/v\/|watch\?v=|\/shorts\/)([A-Za-z0-9_-]{11})/)
-  if (ytUrl) return { kind: "youtube", videoId: ytUrl[1] }
+  if (!/^[A-Za-z0-9_-]{11}$/.test(trimmed)) {
+    const ytId = videoIdFromInput(trimmed)
+    if (ytId) return { kind: "youtube", videoId: ytId }
+  }
 
   const prefixed = trimmed.match(/^(spotify|apple_music|apple|tidal|youtube|isrc)[:\s]+(.+)$/i)
   if (prefixed) {
     const svc = prefixed[1].toLowerCase()
     const val = prefixed[2].trim()
-    if (svc === "isrc") return { kind: "isrc", isrc: val.replace(/[^A-Za-z0-9]/g, "").toUpperCase() }
-    if (svc === "youtube") return { kind: "youtube", videoId: val }
+    if (svc === "isrc") {
+      const cleanIsrc = normalizeIsrc(val)
+      return cleanIsrc ? { kind: "isrc", isrc: cleanIsrc } : null
+    }
+    if (svc === "youtube") return { kind: "youtube", videoId: videoIdFromInput(val) ?? val }
     if (svc === "spotify") return { kind: "provider", service: "spotify", id: val }
     if (svc === "apple_music" || svc === "apple") return { kind: "provider", service: "apple_music", id: val }
     if (svc === "tidal") return { kind: "provider", service: "tidal", id: val }
   }
 
-  const cleanAlnum = trimmed.replace(/[-\s]/g, "").toUpperCase()
-  if (/^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$/.test(cleanAlnum)) {
-    return { kind: "isrc", isrc: cleanAlnum }
+  const cleanIsrc = normalizeIsrc(trimmed)
+  if (cleanIsrc) {
+    return { kind: "isrc", isrc: cleanIsrc }
   }
 
   if (/^[A-Za-z0-9]{22}$/.test(trimmed)) {
@@ -511,6 +566,5 @@ export async function lookupBiniLink(
     }
   }
 
-  // Default to Find Song by title, artist, or album!
   return searchSongsViaBiniLink(trimmed, signal)
 }
